@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="app_name">RIVØ Audio</string>
+
+    <string name="brand_name">RIVØ Audio</string>
+
+    <string name="version_name">v0.1-dev</string>
+
+    <string name="development_message">
+        High Fidelity Audio Player
+    </string>
+
+</resources>
