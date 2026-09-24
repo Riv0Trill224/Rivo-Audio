@@ -1,4 +1,4 @@
-nname: Build RIVØ Audio APK
+name: Build RIVØ Audio APK
 
 on:
   workflow_dispatch:
