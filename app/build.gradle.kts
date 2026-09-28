@@ -12,8 +12,8 @@ android {
         minSdk = 26
         targetSdk = 36
 
-        versionCode = 1
-        versionName = "0.1-dev"
+        versionCode = 2
+        versionName = "0.2.0"
     }
 
     compileOptions {
@@ -23,6 +23,8 @@ android {
 }
 
 dependencies {
+    implementation("androidx.documentfile:documentfile:1.1.0")
+    implementation("androidx.media3:media3-ui:1.11.1")
     val media3Version = "1.11.1"
 
     implementation("androidx.media3:media3-exoplayer:$media3Version")

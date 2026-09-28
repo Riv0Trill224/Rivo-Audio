@@ -1,457 +1,202 @@
 package com.riv0trill.rivoaudio
 
-import android.app.Activity
-import android.content.Intent
-import android.graphics.BitmapFactory
-import android.media.MediaMetadataRetriever
+import android.app.*
+import android.content.*
+import android.graphics.*
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
-import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
+import android.os.*
 import android.provider.OpenableColumns
-import android.view.View
-import android.widget.Button
-import android.widget.ImageView
-import android.widget.SeekBar
-import android.widget.TextView
-import androidx.media3.common.C
-import androidx.media3.common.MediaItem
-import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
-import java.util.Locale
+import android.view.*
+import android.widget.*
+import androidx.media3.common.*
+import androidx.media3.session.*
+import androidx.media3.ui.PlayerView
+import java.io.File
+import java.util.concurrent.Executor
 
 class MainActivity : Activity() {
-
-    companion object {
-        private const val REQUEST_AUDIO = 1001
+    private var controller: MediaController?=null
+    private var future: com.google.common.util.concurrent.ListenableFuture<MediaController>?=null
+    private val library get()=PlaybackService.instance!!.library
+    private val prefs by lazy { getSharedPreferences("rivo",0) }
+    private val handler=Handler(Looper.getMainLooper())
+    private lateinit var root:LinearLayout
+    private lateinit var body:LinearLayout
+    private var page="Canciones"
+    private var selectedArtist:String?=null
+    private var editTrack:Track?=null
+    private var lyricView:TextView?=null
+    private var lyricScroll:ScrollView?=null
+    private var lyricLines=listOf<Pair<Long,String>>()
+    private var lyricIndex=-1
+    private var progress:SeekBar?=null
+    private var timeLabel:TextView?=null
+    private var playButton:Button?=null
+    private var mini:Button?=null
+    private val accent=Color.rgb(212,173,255)
+    private val ink=Color.rgb(9,12,20)
+    private val surface=Color.rgb(26,27,41)
+    private val updater=object:Runnable { override fun run() { updateProgress();handler.postDelayed(this,500) } }
+    private fun current()=controller?.currentMediaItem?.mediaId?.let { id -> library.tracks.firstOrNull { it.id==id } }
+    private fun dp(n:Int)=(n*resources.displayMetrics.density).toInt()
+    private fun label(text:String,size:Float=16f)=TextView(this).apply { this.text=text;textSize=size;setTextColor(Color.WHITE);setPadding(dp(8),dp(6),dp(8),dp(6)) }
+    private fun button(text:String,action:()->Unit)=Button(this).apply { this.text=text;isAllCaps=false;setTextColor(accent);setOnClickListener { action() } }
+    private fun column()=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL }
+    private fun row()=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL }
+    private fun addButton(text:String,action:()->Unit) { body.addView(button(text,action)) }
+    private fun toast(text:String)=Toast.makeText(this,text,Toast.LENGTH_LONG).show()
+    private fun async(work:()->Unit,done:()->Unit={ render() }) { library.worker.execute { try { work();runOnUiThread { if(!isFinishing) done() } } catch(e:Exception) { runOnUiThread { toast(e.message ?: "Error") } } } }
+    override fun onCreate(state:Bundle?) {
+        super.onCreate(state)
+        window.statusBarColor=ink;window.navigationBarColor=ink
+        if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED) requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),99)
+        root=column();root.setBackgroundColor(ink);root.setPadding(dp(12),dp(8),dp(12),dp(8));setContentView(root)
+        root.setOnApplyWindowInsetsListener { v,insets -> v.setPadding(dp(12),insets.systemWindowInsetTop+dp(8),dp(12),insets.systemWindowInsetBottom+dp(8));insets }
+        root.addView(label("RIVØ AUDIO",26f));root.addView(label("Cargando biblioteca…"))
+        future=MediaController.Builder(this,SessionToken(this,ComponentName(this,PlaybackService::class.java))).buildAsync()
+        future!!.addListener({ runCatching { controller=future!!.get();controller!!.addListener(object:Player.Listener {
+            override fun onMediaItemTransition(item:MediaItem?,reason:Int) { if(page=="Reproductor"||page=="Letras") render() else updateProgress() }
+            override fun onPlayerError(error:PlaybackException) { toast("No se pudo reproducir: ${error.message}") }
+        });render() }.onFailure { toast(it.message ?: "No se pudo iniciar el audio") } },Executor { runOnUiThread(it) })
     }
-
-    private lateinit var player: ExoPlayer
-
-    private lateinit var albumArt: ImageView
-    private lateinit var songTitle: TextView
-    private lateinit var songArtist: TextView
-    private lateinit var selectAudioButton: Button
-    private lateinit var playPauseButton: Button
-    private lateinit var seekBar: SeekBar
-    private lateinit var currentTime: TextView
-    private lateinit var totalTime: TextView
-    private lateinit var deviceProfileText: TextView
-    private lateinit var outputText: TextView
-
-    private val handler = Handler(Looper.getMainLooper())
-
-    private var userSeeking = false
-
-    private val progressUpdater = object : Runnable {
-        override fun run() {
-            updateProgress()
-            handler.postDelayed(this, 500)
+    override fun onStart() { super.onStart();handler.post(updater) }
+    override fun onStop() { handler.removeCallbacks(updater);super.onStop() }
+    override fun onDestroy() { future?.let { MediaController.releaseFuture(it) };super.onDestroy() }
+    override fun onBackPressed() { if(page!="Canciones") { page="Canciones";selectedArtist=null;render() } else super.onBackPressed() }
+    private fun render() {
+        if(controller==null||PlaybackService.instance==null)return
+        root.removeAllViews();progress=null;timeLabel=null;playButton=null;lyricView=null;lyricScroll=null;lyricIndex=-1
+        val heading=row();heading.addView(button("‹") { page="Canciones";selectedArtist=null;render() });heading.addView(label(if(page=="Reproductor") "RIVØ AUDIO" else page,24f),LinearLayout.LayoutParams(0,-2,1f));heading.addView(button("⋯") { page="Ajustes";render() });root.addView(heading)
+        body=column();val scroll=ScrollView(this);scroll.addView(body);root.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
+        when(page) {
+            "Canciones" -> libraryPage()
+            "Artistas" -> artistsPage()
+            "Reproductor" -> playerPage()
+            "Letras" -> lyricsPage()
+            "EQ" -> eqPage()
+            "Ajustes" -> settingsPage()
+            "Transferir" -> transferPage()
+            "Escuchas" -> historyPage()
+            "Administrar letras" -> managerPage()
         }
+        mini=button(current()?.let { "${it.title} · Abrir reproductor" } ?: "Selecciona una canción") { page="Reproductor";render() };root.addView(mini)
+        val tabs=row();listOf("Canciones","Artistas","EQ","Escuchas","Transferir").forEach { name -> tabs.addView(button(name) { page=name;selectedArtist=null;render() }.apply { textSize=10f;minWidth=0;setPadding(0,0,0,0) },LinearLayout.LayoutParams(0,dp(48),1f)) };root.addView(tabs)
+        updateProgress()
     }
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-
-        setContentView(R.layout.activity_main)
-
-        bindViews()
-        setupPlayer()
-        setupDeviceProfile()
-        setupControls()
-
-        handler.post(progressUpdater)
+    private fun libraryPage() {
+        body.addView(label("Tu colección, a tu ritmo.",22f));body.addView(label("${library.tracks.size} pistas"))
+        val search=EditText(this).apply { hint="Canción, artista o álbum";setTextColor(Color.WHITE);setHintTextColor(Color.GRAY) };body.addView(search)
+        addButton("＋ Añadir música") { pickOptions() }
+        addButton("Mezclar") { library.tracks.filter { !it.video }.shuffled().firstOrNull()?.let { controller?.shuffleModeEnabled=true;play(it) } }
+        val list=column();body.addView(list)
+        fun fill(q:String) { list.removeAllViews();library.tracks.filter { "$it".contains(q,true) }.forEach { track -> list.addView(button("${track.title}\n${track.artist}") { play(track) }.apply { gravity=Gravity.START;setOnLongClickListener { editMetadata(track);true } }) } }
+        fill("");search.addTextChangedListener(object:android.text.TextWatcher { override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int){};override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int){fill(s.toString())};override fun afterTextChanged(e:android.text.Editable?){} })
     }
-
-    private fun bindViews() {
-        albumArt = findViewById(R.id.albumArt)
-        songTitle = findViewById(R.id.songTitle)
-        songArtist = findViewById(R.id.songArtist)
-        selectAudioButton = findViewById(R.id.selectAudioButton)
-        playPauseButton = findViewById(R.id.playPauseButton)
-        seekBar = findViewById(R.id.seekBar)
-        currentTime = findViewById(R.id.currentTime)
-        totalTime = findViewById(R.id.totalTime)
-        deviceProfileText = findViewById(R.id.deviceProfileText)
-        outputText = findViewById(R.id.outputText)
+    private fun artistsPage() {
+        val artist=selectedArtist
+        if(artist==null) library.tracks.groupBy { it.artist }.toSortedMap().forEach { (a,ts) -> addButton("$a · ${ts.size} canciones") { selectedArtist=a;render() } }
+        else { body.addView(label(artist,26f));library.tracks.filter { it.artist==artist }.forEach { t-> addButton(t.title) { play(t) } } }
     }
-
-    private fun setupPlayer() {
-        player = ExoPlayer.Builder(this).build()
-
-        player.addListener(
-            object : Player.Listener {
-
-                override fun onIsPlayingChanged(isPlaying: Boolean) {
-                    updatePlayPauseButton()
-                }
-
-                override fun onPlaybackStateChanged(playbackState: Int) {
-                    updatePlayPauseButton()
-                    updateProgress()
-                }
-            }
-        )
-    }
-
-    private fun setupDeviceProfile() {
-        val profile = DeviceProfile.detect()
-
-        deviceProfileText.text =
-            when (profile) {
-                DeviceProfile.Type.RGDS ->
-                    "Dispositivo: RG DS"
-
-                DeviceProfile.Type.STANDARD_ANDROID ->
-                    "Dispositivo: Android estándar"
-            }
-
-        outputText.text = "Salida: Sistema Android"
-    }
-
-    private fun setupControls() {
-
-        selectAudioButton.setOnClickListener {
-            openAudioPicker()
+    private fun mediaItem(t:Track)=MediaItem.Builder().setMediaId(t.id).setUri(Uri.fromFile(File(t.path))).setMediaMetadata(MediaMetadata.Builder().setTitle(t.title).setArtist(t.artist).setAlbumTitle(t.album).setArtworkUri(File(library.covers,t.id+".jpg").takeIf { it.exists() }?.let { Uri.fromFile(it) }).build()).build()
+    private fun play(t:Track) { val tracks=library.tracks.filter { it.video==t.video };controller?.setMediaItems(tracks.map { mediaItem(it) },tracks.indexOf(t).coerceAtLeast(0),0);controller?.prepare();controller?.play();page="Reproductor";render() }
+    private fun playerPage() {
+        val t=current() ?: run { body.addView(label("Selecciona una canción"));return }
+        if(t.video) body.addView(PlayerView(this).apply { player=controller;useController=true },LinearLayout.LayoutParams(-1,dp(220)))
+        else {
+            val art=ImageView(this);art.scaleType=ImageView.ScaleType.CENTER_CROP
+            val f=File(library.covers,t.id+".jpg")
+            if(f.exists()) { val opts=BitmapFactory.Options().apply { inJustDecodeBounds=true };BitmapFactory.decodeFile(f.path,opts);opts.inSampleSize=maxOf(1,maxOf(opts.outWidth,opts.outHeight)/800);opts.inJustDecodeBounds=false;art.setImageBitmap(BitmapFactory.decodeFile(f.path,opts)) }
+            else art.setImageResource(android.R.drawable.ic_media_play)
+            art.background=GradientDrawable(GradientDrawable.Orientation.TL_BR,intArrayOf(if(prefs.getBoolean("visual.artwork",true)) Color.rgb(86,48,119) else surface,ink));body.addView(art,LinearLayout.LayoutParams(-1,dp(250)))
         }
-
-        playPauseButton.setOnClickListener {
-
-            if (player.mediaItemCount == 0) {
-                openAudioPicker()
-                return@setOnClickListener
-            }
-
-            if (player.isPlaying) {
-                player.pause()
-            } else {
-                player.play()
-            }
+        body.addView(label(t.title,24f));body.addView(label(t.artist,18f));body.addView(label(t.album,14f))
+        val pair=library.tracks.filter { it.video!=t.video&&normalized(it.title)==normalized(t.title)&&normalized(it.artist)==normalized(t.artist) }
+        if(pair.isNotEmpty()) addButton(if(t.video) "Cambiar a Audio" else "Cambiar a Video") {
+            fun switch(other:Track) { val pos=controller!!.currentPosition;val playing=controller!!.playWhenReady;controller!!.setMediaItem(mediaItem(other),pos);controller!!.prepare();controller!!.playWhenReady=playing;render() }
+            if(pair.size==1)switch(pair[0]) else AlertDialog.Builder(this).setTitle("Selecciona la versión").setItems(pair.map { it.title+" · "+File(it.path).extension }.toTypedArray()) { _,i->switch(pair[i]) }.show()
         }
-
-        seekBar.setOnSeekBarChangeListener(
-            object : SeekBar.OnSeekBarChangeListener {
-
-                override fun onProgressChanged(
-                    seekBar: SeekBar?,
-                    progress: Int,
-                    fromUser: Boolean
-                ) {
-                    if (fromUser) {
-                        currentTime.text =
-                            formatTime(progress.toLong())
-                    }
-                }
-
-                override fun onStartTrackingTouch(seekBar: SeekBar?) {
-                    userSeeking = true
-                }
-
-                override fun onStopTrackingTouch(seekBar: SeekBar?) {
-
-                    userSeeking = false
-
-                    seekBar?.let {
-                        player.seekTo(it.progress.toLong())
-                    }
-                }
-            }
-        )
+        progress=SeekBar(this).apply { max=1000;setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener { override fun onProgressChanged(s:SeekBar?,p:Int,user:Boolean) { if(user)controller?.seekTo(p.toLong()) };override fun onStartTrackingTouch(s:SeekBar?){};override fun onStopTrackingTouch(s:SeekBar?){} }) };body.addView(progress)
+        timeLabel=label("");body.addView(timeLabel)
+        val controls=row();controls.gravity=Gravity.CENTER
+        controls.addView(button("|◀") { if(controller!!.currentPosition>3000)controller!!.seekTo(0) else controller!!.seekToPreviousMediaItem() })
+        playButton=button("▶") { controller?.let { if(it.isPlaying)it.pause() else it.play() } };controls.addView(playButton)
+        controls.addView(button("▶|") { controller?.seekToNextMediaItem() });body.addView(controls)
+        addButton("Letras sincronizadas") { page="Letras";render() }
+        addButton("Ecualizador") { page="EQ";render() }
+        addButton("Cola · ${controller!!.mediaItemCount} pistas") { AlertDialog.Builder(this).setTitle("Cola").setItems((0 until controller!!.mediaItemCount).map { controller!!.getMediaItemAt(it).mediaMetadata.title.toString() }.toTypedArray()) { _,i->controller!!.seekToDefaultPosition(i);controller!!.play() }.show() }
+        addButton("Aleatorio: ${controller!!.shuffleModeEnabled}") { controller!!.shuffleModeEnabled=!controller!!.shuffleModeEnabled;render() }
+        addButton("Repetir canción: ${controller!!.repeatMode==Player.REPEAT_MODE_ONE}") { controller!!.repeatMode=if(controller!!.repeatMode==Player.REPEAT_MODE_ONE)Player.REPEAT_MODE_ALL else Player.REPEAT_MODE_ONE;render() }
+        addButton("Editar información y carátula") { editMetadata(t) }
     }
-
-    private fun openAudioPicker() {
-
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-
-            addCategory(Intent.CATEGORY_OPENABLE)
-
-            type = "audio/*"
-
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-
-            addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
-        }
-
-        startActivityForResult(intent, REQUEST_AUDIO)
-    }
-
-    @Deprecated("Deprecated in Android API, retained for broad device compatibility")
-    override fun onActivityResult(
-        requestCode: Int,
-        resultCode: Int,
-        data: Intent?
-    ) {
-
-        super.onActivityResult(
-            requestCode,
-            resultCode,
-            data
-        )
-
-        if (
-            requestCode == REQUEST_AUDIO &&
-            resultCode == RESULT_OK
-        ) {
-
-            val uri = data?.data ?: return
-
-            try {
-
-                contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-
-            } catch (_: Exception) {
-                // Algunos proveedores no permiten permisos persistentes.
-            }
-
-            loadAudio(uri)
-        }
-    }
-
-    private fun loadAudio(uri: Uri) {
-
-        readMetadata(uri)
-
-        val mediaItem =
-            MediaItem.fromUri(uri)
-
-        player.setMediaItem(mediaItem)
-
-        player.prepare()
-
-        player.play()
-
-        playPauseButton.visibility = View.VISIBLE
-    }
-
-    private fun readMetadata(uri: Uri) {
-
-        var fallbackName =
-            getFileName(uri) ?: "Audio"
-
-        var title: String? = null
-        var artist: String? = null
-
-        val retriever =
-            MediaMetadataRetriever()
-
-        try {
-
-            retriever.setDataSource(
-                this,
-                uri
-            )
-
-            title =
-                retriever.extractMetadata(
-                    MediaMetadataRetriever.METADATA_KEY_TITLE
-                )
-
-            artist =
-                retriever.extractMetadata(
-                    MediaMetadataRetriever.METADATA_KEY_ARTIST
-                )
-
-            val artwork =
-                retriever.embeddedPicture
-
-            if (artwork != null) {
-
-                val bitmap =
-                    BitmapFactory.decodeByteArray(
-                        artwork,
-                        0,
-                        artwork.size
-                    )
-
-                albumArt.setImageBitmap(bitmap)
-
-                albumArt.scaleType =
-                    ImageView.ScaleType.CENTER_CROP
-
-            } else {
-
-                albumArt.setImageResource(
-                    android.R.drawable.ic_media_play
-                )
-
-                albumArt.scaleType =
-                    ImageView.ScaleType.CENTER
-            }
-
-        } catch (_: Exception) {
-
-            albumArt.setImageResource(
-                android.R.drawable.ic_media_play
-            )
-
-        } finally {
-
-            try {
-                retriever.release()
-            } catch (_: Exception) {
-            }
-        }
-
-        if (title.isNullOrBlank()) {
-
-            fallbackName =
-                fallbackName.substringBeforeLast(".")
-
-            title = fallbackName
-        }
-
-        if (artist.isNullOrBlank()) {
-            artist = "Artista desconocido"
-        }
-
-        songTitle.text = title
-        songArtist.text = artist
-    }
-
-    private fun getFileName(uri: Uri): String? {
-
-        var result: String? = null
-
-        if (uri.scheme == "content") {
-
-            contentResolver.query(
-                uri,
-                null,
-                null,
-                null,
-                null
-            )?.use { cursor ->
-
-                val index =
-                    cursor.getColumnIndex(
-                        OpenableColumns.DISPLAY_NAME
-                    )
-
-                if (
-                    index >= 0 &&
-                    cursor.moveToFirst()
-                ) {
-
-                    result =
-                        cursor.getString(index)
-                }
-            }
-        }
-
-        if (result == null) {
-            result =
-                uri.path
-                    ?.substringAfterLast("/")
-        }
-
-        return result
-    }
-
-    private fun updatePlayPauseButton() {
-
-        playPauseButton.text =
-            if (player.isPlaying) {
-                "❚❚"
-            } else {
-                "▶"
-            }
-    }
-
+    private fun format(ms:Long):String { val sec=maxOf(0,ms)/1000;return "%d:%02d".format(sec/60,sec%60) }
     private fun updateProgress() {
-
-        if (!::player.isInitialized) {
-            return
-        }
-
-        val duration =
-            player.duration
-
-        val position =
-            player.currentPosition
-
-        if (
-            duration != C.TIME_UNSET &&
-            duration > 0
-        ) {
-
-            seekBar.max =
-                duration
-                    .coerceAtMost(Int.MAX_VALUE.toLong())
-                    .toInt()
-
-            if (!userSeeking) {
-
-                seekBar.progress =
-                    position
-                        .coerceAtMost(Int.MAX_VALUE.toLong())
-                        .toInt()
+        val p=controller ?: return
+        progress?.max=p.duration.coerceIn(1,Int.MAX_VALUE.toLong()).toInt();progress?.progress=p.currentPosition.toInt()
+        timeLabel?.text="${format(p.currentPosition)} / ${format(p.duration)}";playButton?.text=if(p.isPlaying)"❚❚" else "▶"
+        if(page=="Letras"&&lyricLines.isNotEmpty()) {
+            val index=lyricLines.indexOfLast { it.first<=p.currentPosition }
+            if(index!=lyricIndex) { lyricIndex=index;val text=android.text.SpannableString(lyricLines.joinToString("\n\n") { it.second });var offset=0
+                lyricLines.forEachIndexed { i,line ->text.setSpan(android.text.style.ForegroundColorSpan(if(i==index)Color.WHITE else Color.GRAY),offset,offset+line.second.length,0);offset+=line.second.length+2 }
+                lyricView?.text=text
+                lyricView?.post { lyricView?.layout?.let { layout -> val at=lyricLines.take(maxOf(0,index)).sumOf { it.second.length+2 };val y=layout.getLineTop(layout.getLineForOffset(at.coerceAtMost(text.length)));if(prefs.getBoolean("visual.motion",true))lyricScroll?.smoothScrollTo(0,maxOf(0,y-dp(90))) else lyricScroll?.scrollTo(0,maxOf(0,y-dp(90))) } }
             }
-
-            currentTime.text =
-                formatTime(position)
-
-            totalTime.text =
-                formatTime(duration)
-
-        } else {
-
-            currentTime.text = "00:00"
-            totalTime.text = "00:00"
         }
     }
-
-    private fun formatTime(
-        milliseconds: Long
-    ): String {
-
-        if (milliseconds < 0) {
-            return "00:00"
-        }
-
-        val totalSeconds =
-            milliseconds / 1000
-
-        val seconds =
-            totalSeconds % 60
-
-        val minutes =
-            (totalSeconds / 60) % 60
-
-        val hours =
-            totalSeconds / 3600
-
-        return if (hours > 0) {
-
-            String.format(
-                Locale.getDefault(),
-                "%d:%02d:%02d",
-                hours,
-                minutes,
-                seconds
-            )
-
-        } else {
-
-            String.format(
-                Locale.getDefault(),
-                "%02d:%02d",
-                minutes,
-                seconds
-            )
-        }
+    private fun lyricsPage() {
+        val t=current() ?: return
+        addButton("Editar / reemplazar / buscar letra") { editLyrics(t) }
+        val text=library.readLyrics(t)
+        val pattern=Regex("\\[(\\d{1,2}):(\\d{2})(?:\\.(\\d{1,3}))?\\]")
+        lyricLines=text.lines().flatMap { line-> val matches=pattern.findAll(line).toList();val words=matches.lastOrNull()?.let { line.substring(it.range.last+1).trim() } ?: "";matches.map { m-> val frac=m.groupValues[3].padEnd(3,'0').take(3).toLongOrNull() ?: 0;(m.groupValues[1].toLong()*60000+m.groupValues[2].toLong()*1000+frac) to words } }.sortedBy { it.first }
+        lyricView=label(if(text.isBlank())"Sin letra descargada" else text,prefs.getFloat("visual.lyricSize",30f))
+        lyricScroll=ScrollView(this);lyricScroll!!.addView(lyricView);body.addView(lyricScroll,LinearLayout.LayoutParams(-1,dp(440)))
     }
-
-    override fun onDestroy() {
-
-        handler.removeCallbacks(
-            progressUpdater
-        )
-
-        player.release()
-
-        super.onDestroy()
+    private fun managerPage() { body.addView(label("Letras guardadas localmente · LRC"));library.tracks.filter { !it.video }.forEach { t->addButton("${t.title}\n${library.records().optJSONObject(t.id)?.optString("source") ?: "Sin letra"}") { editLyrics(t) } } }
+    private fun editLyrics(t:Track) {
+        editTrack=t
+        val editor=EditText(this).apply { setText(library.readLyrics(t));minLines=8;gravity=Gravity.TOP;setTextColor(Color.WHITE) }
+        val panel=column();panel.setPadding(dp(16),dp(8),dp(16),dp(8));panel.addView(editor)
+        panel.addView(button("Reemplazar desde Archivos") { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { type="*/*";addCategory(Intent.CATEGORY_OPENABLE) },102) })
+        panel.addView(button("Exportar LRC") { startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply { type="text/plain";addCategory(Intent.CATEGORY_OPENABLE);putExtra(Intent.EXTRA_TITLE,t.title+".lrc") },103) })
+        panel.addView(button("Buscar en LRCLIB") { async({ val matches=library.lookup(t);runOnUiThread { if(matches.isEmpty())toast("Sin coincidencias") else AlertDialog.Builder(this).setTitle("Elige la letra correcta").setItems(matches.map { it.optString("trackName")+" · "+it.optString("artistName") }.toTypedArray()) { _,i ->val text=matches[i].getString("syncedLyrics");library.saveLyrics(t,text,"LRCLIB · selección manual");editor.setText(text) }.show() } },{}) })
+        AlertDialog.Builder(this).setTitle(t.title).setView(panel).setPositiveButton("Guardar") { _,_->library.saveLyrics(t,editor.text.toString(),"Edición manual");render() }.setNeutralButton("Eliminar") { _,_->AlertDialog.Builder(this).setMessage("¿Eliminar la letra? Se conserva la canción.").setPositiveButton("Eliminar") { _,_->library.deleteLyrics(t);render() }.setNegativeButton("Cancelar",null).show() }.setNegativeButton("Cerrar",null).show()
+    }
+    private fun toggle(text:String,key:String,default:Boolean) { body.addView(Switch(this).apply { this.text=text;setTextColor(Color.WHITE);isChecked=prefs.getBoolean(key,default);setOnCheckedChangeListener { _,v->prefs.edit().putBoolean(key,v).apply();PlaybackService.instance?.applySettings() } }) }
+    private fun slider(title:String,key:String,min:Float,max:Float,default:Float) {
+        val text=label("$title: ${prefs.getFloat(key,default)}");body.addView(text)
+        body.addView(SeekBar(this).apply { this.max=100;progress=((prefs.getFloat(key,default)-min)/(max-min)*100).toInt();setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener { override fun onProgressChanged(s:SeekBar?,p:Int,user:Boolean){ if(user){val v=min+(max-min)*p/100;prefs.edit().putFloat(key,v).apply();text.text="$title: %.2f".format(v);PlaybackService.instance?.applySettings()} };override fun onStartTrackingTouch(s:SeekBar?){};override fun onStopTrackingTouch(s:SeekBar?){} }) })
+    }
+    private fun settingsPage() {
+        body.addView(label("Opciones visuales",22f));toggle("Fondo de carátula","visual.artwork",true);toggle("Animar letras","visual.motion",true);slider("Tamaño de letra","visual.lyricSize",20f,40f,30f)
+        body.addView(label("Letras",22f));toggle("Buscar letras automáticamente","lyrics.auto",true);addButton("Administrar letras descargadas") { page="Administrar letras";render() }
+        body.addView(label("Motor de audio",22f));toggle("Ecualizador activo","eq.enabled",true);slider("Velocidad","audio.rate",0.5f,2f,1f);slider("Preamplificación dB","audio.preamp",-12f,0f,0f);addButton("Ecualizador y presets") {page="EQ";render()}
+        val am=getSystemService(AUDIO_SERVICE) as android.media.AudioManager
+        body.addView(label("Salidas disponibles: "+am.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS).joinToString { it.productName.toString() }))
+        body.addView(label("${DeviceProfile.detect()} · ${controller?.audioAttributes?.contentType ?: 0}\nAndroid administra la ruta al DAC, Bluetooth o altavoz. Esta versión no garantiza salida bit perfect.",13f))
+    }
+    private fun eqPage() {
+        val e=PlaybackService.instance?.eq
+        toggle("Ecualizador activo","eq.enabled",true)
+        if(e==null) { body.addView(label("Reproduce una canción para activar el ecualizador."));return }
+        body.addView(label("${e.numberOfBands} bandas disponibles en este dispositivo",18f))
+        listOf("Plano","Graves","Hip-Hop","Voces","Brillante").forEachIndexed { preset,name ->addButton(name) { for(i in 0 until e.numberOfBands.toInt()){val f=e.getCenterFreq(i.toShort())/1000;val gain=when(preset){1->if(f<250)500 else 0;2->if(f<250)400 else if(f>4000)200 else 0;3->if(f in 500..4000)300 else -200;4->if(f>4000)400 else 0;else->0};prefs.edit().putInt("eq.$i",gain).apply() };PlaybackService.instance?.applySettings();render() } }
+        for(i in 0 until e.numberOfBands.toInt()) { val low=e.bandLevelRange[0].toInt();val high=e.bandLevelRange[1].toInt();val text=label("${e.getCenterFreq(i.toShort())/1000} Hz · ${prefs.getInt("eq.$i",0)/100f} dB");body.addView(text);body.addView(SeekBar(this).apply { max=high-low;progress=prefs.getInt("eq.$i",0)-low;setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener { override fun onProgressChanged(s:SeekBar?,p:Int,user:Boolean){if(user){prefs.edit().putInt("eq.$i",p+low).apply();PlaybackService.instance?.applySettings();text.text="${e.getCenterFreq(i.toShort())/1000} Hz · ${(p+low)/100f} dB"}};override fun onStartTrackingTouch(s:SeekBar?){};override fun onStopTrackingTouch(s:SeekBar?){} }) }) }
+    }
+    private fun historyPage() { body.addView(label("Escuchas registradas",22f));library.tracks.filter { it.plays>0 }.sortedByDescending { it.plays }.forEach { t->addButton("${t.title} · ${t.plays} escuchas") { play(t) } } }
+    private fun transferPage() { addButton("Añadir carpeta desde Archivos") { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE),101) };addButton("Añadir canciones o videos") { pickFiles() };addButton("Administrar letras descargadas") {page="Administrar letras";render()};addButton("Ajustes visuales y de audio") {page="Ajustes";render()};body.addView(label("Los archivos se copian a la biblioteca de Rivo Audio. Las letras se guardan en Lyrics; puedes exportarlas desde su editor.")) }
+    private fun pickOptions() { AlertDialog.Builder(this).setItems(arrayOf("Seleccionar carpeta","Seleccionar archivos")) { _,i->if(i==0)startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE),101) else pickFiles() }.show() }
+    private fun pickFiles() { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { type="*/*";putExtra(Intent.EXTRA_MIME_TYPES,arrayOf("audio/*","video/*"));putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);addCategory(Intent.CATEGORY_OPENABLE) },100) }
+    private fun editMetadata(t:Track) { editTrack=t;val panel=column();val title=EditText(this).apply {setText(t.title)};val artist=EditText(this).apply {setText(t.artist)};val album=EditText(this).apply {setText(t.album)};panel.addView(title);panel.addView(artist);panel.addView(album);val rating=RatingBar(this).apply {numStars=5;stepSize=1f;rating=t.rating.toFloat()};panel.addView(rating);panel.addView(button("Cambiar carátula") {startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {type="image/*";addCategory(Intent.CATEGORY_OPENABLE)},104)});AlertDialog.Builder(this).setTitle("Editar biblioteca").setView(panel).setPositiveButton("Guardar") { _,_->t.title=title.text.toString();t.artist=artist.text.toString();t.album=album.text.toString();t.rating=rating.rating.toInt();library.save();render() }.setNegativeButton("Cancelar",null).show() }
+    @Deprecated("Activity result compatibility") override fun onActivityResult(code:Int,result:Int,data:Intent?) {
+        super.onActivityResult(code,result,data);if(result!=RESULT_OK||data==null)return
+        val uri=data.data
+        when(code) {
+            100 -> { val uris=if(data.clipData!=null)(0 until data.clipData!!.itemCount).map {data.clipData!!.getItemAt(it).uri} else listOfNotNull(uri);toast("Importando…");async({uris.forEach {u->var name="Audio";contentResolver.query(u,null,null,null,null)?.use {if(it.moveToFirst())name=it.getString(it.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))};library.importFile(u,name)}}) }
+            101 ->if(uri!=null){toast("Importando carpeta…");async({library.importFolder(uri)})}
+            102 ->if(uri!=null) editTrack?.let {t->async({contentResolver.openInputStream(uri)?.bufferedReader()?.use {library.saveLyrics(t,it.readText(),"Archivo importado")}})}
+            103 ->if(uri!=null) editTrack?.let {t->async({contentResolver.openOutputStream(uri)?.bufferedWriter()?.use {it.write(library.readLyrics(t))}}, {toast("LRC exportado")})}
+            104 ->if(uri!=null) editTrack?.let {t->async({contentResolver.openInputStream(uri)?.use {input->File(library.covers,t.id+".jpg").outputStream().use {input.copyTo(it)}}})}
+        }
     }
 }

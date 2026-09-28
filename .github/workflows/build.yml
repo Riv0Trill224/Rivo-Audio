@@ -1,6 +1,9 @@
 name: Build RIVØ Audio APK
 
 on:
+  pull_request:
+    branches: [main]
+
   workflow_dispatch:
 
   push:
@@ -44,5 +47,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: RivoAudio-v0.1-dev
+          name: RivoAudio-v0.2.0-debug
           path: app/build/outputs/apk/debug/app-debug.apk
