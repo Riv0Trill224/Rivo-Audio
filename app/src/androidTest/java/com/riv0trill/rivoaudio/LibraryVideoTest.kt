@@ -50,10 +50,11 @@ class LibraryVideoTest {
             assertTrue(device.findObject(UiSelector().text("Cambiar a Video")).waitForExists(5000));device.findObject(UiSelector().text("Cambiar a Video")).click()
             instrumentation.runOnMainSync {val p=PlaybackService.instance!!.player;assertEquals(video.id,p.currentMediaItem!!.mediaId);p.pause()}
             assertTrue(device.findObject(UiSelector().text("Pantalla completa")).waitForExists(5000));device.findObject(UiSelector().text("Pantalla completa")).click()
+            val immersiveTip=device.findObject(UiSelector().text("Got it"));if(immersiveTip.waitForExists(2500))immersiveTip.click()
             val fullscreenOpened=device.findObject(UiSelector().text("Cerrar pantalla completa")).waitForExists(5000)
             if(!fullscreenOpened){device.takeScreenshot(File("/sdcard/Download/rivo-video-stage.png"));device.dumpWindowHierarchy(File("/sdcard/Download/rivo-video-stage.xml"))}
             assertTrue("Fullscreen opens before rotation",fullscreenOpened)
-            device.setOrientationLeft();Thread.sleep(500)
+            device.setOrientationLeft();Thread.sleep(500);assertEquals("Landscape rotation",1,device.displayRotation)
             assertTrue(device.findObject(UiSelector().text("Cerrar pantalla completa")).waitForExists(5000))
             device.findObject(UiSelector().text("Ocultar letra")).click();assertTrue(device.findObject(UiSelector().text("Mostrar letra")).waitForExists(3000));device.findObject(UiSelector().text("Mostrar letra")).click()
             var position=0L;instrumentation.runOnMainSync {val p=PlaybackService.instance!!.player;assertEquals(2,p.mediaItemCount);assertEquals(video.id,p.currentMediaItem!!.mediaId);p.play();position=p.currentPosition}
