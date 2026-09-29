@@ -40,7 +40,7 @@ class PlaybackSmokeTest {
         song.title="Neon Nights";library.save();assertTrue(library.readLyrics(song).contains("Segunda"))
         val device=UiDevice.getInstance(instrumentation)
         ActivityScenario.launch(MainActivity::class.java).use {
-            val search=device.findObject(UiSelector().className("android.widget.EditText"));assertTrue(search.waitForExists(20000));search.setText("Neon");device.pressBack()
+            val search=device.findObject(UiSelector().className("android.widget.EditText"));assertTrue(search.waitForExists(20000));search.setText("Neon")
             androidx.test.uiautomator.UiScrollable(UiSelector().className("android.widget.ScrollView")).scrollIntoView(UiSelector().text("Neon Nights"))
             val row=device.findObject(UiSelector().text("Neon Nights"));assertTrue(row.waitForExists(20000));row.click()
             assertTrue(device.findObject(UiSelector().description("Anterior")).waitForExists(10000))

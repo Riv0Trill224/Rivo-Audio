@@ -50,7 +50,9 @@ class LibraryVideoTest {
             assertTrue(device.findObject(UiSelector().text("Cambiar a Video")).waitForExists(5000));device.findObject(UiSelector().text("Cambiar a Video")).click()
             instrumentation.runOnMainSync {val p=PlaybackService.instance!!.player;assertEquals(video.id,p.currentMediaItem!!.mediaId);p.pause()}
             assertTrue(device.findObject(UiSelector().text("Pantalla completa")).waitForExists(5000));device.findObject(UiSelector().text("Pantalla completa")).click()
-            assertTrue("Fullscreen opens before rotation",device.findObject(UiSelector().text("Cerrar pantalla completa")).waitForExists(5000))
+            val fullscreenOpened=device.findObject(UiSelector().text("Cerrar pantalla completa")).waitForExists(5000)
+            if(!fullscreenOpened){device.takeScreenshot(File("/sdcard/Download/rivo-video-stage.png"));device.dumpWindowHierarchy(File("/sdcard/Download/rivo-video-stage.xml"))}
+            assertTrue("Fullscreen opens before rotation",fullscreenOpened)
             device.setOrientationLeft();Thread.sleep(500)
             assertTrue(device.findObject(UiSelector().text("Cerrar pantalla completa")).waitForExists(5000))
             device.findObject(UiSelector().text("Ocultar letra")).click();assertTrue(device.findObject(UiSelector().text("Mostrar letra")).waitForExists(3000));device.findObject(UiSelector().text("Mostrar letra")).click()
