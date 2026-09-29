@@ -30,6 +30,8 @@ class MainActivity : Activity() {
     private var page="Canciones"
     private var selectedArtist:String?=null
     private var editTrack:Track?=null
+    private var lyricEditor:EditText?=null
+    private var lyricEditorTrackId:String?=null
     private var lyricView:TextView?=null
     private var lyricScroll:ScrollView?=null
     private var lyricLines=listOf<Pair<Long,String>>()
@@ -72,6 +74,7 @@ class MainActivity : Activity() {
     private fun render() {
         if(controller==null||PlaybackService.instance==null)return
         videoSurface?.player=null;videoSurface=null
+        applyBackdrop()
         root.removeAllViews();progress=null;timeLabel=null;playButton=null;lyricView=null;lyricScroll=null;lyricIndex=-1
         val heading=row();heading.addView(button("‹") { page="Canciones";selectedArtist=null;render() });heading.addView(label(if(page=="Reproductor") "RIVØ AUDIO" else page,24f),LinearLayout.LayoutParams(0,-2,1f));heading.addView(button("⋯") { page="Ajustes";render() });root.addView(heading)
         body=column();val scroll=ScrollView(this);scroll.addView(body);root.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
@@ -90,6 +93,27 @@ class MainActivity : Activity() {
         mini=button(current()?.let { "${it.title} · Abrir reproductor" } ?: "Selecciona una canción") { page="Reproductor";render() };root.addView(mini)
         val tabs=row();listOf("Canciones","Artistas","EQ","Escuchas","Transferir").forEach { name -> tabs.addView(button(name) { page=name;selectedArtist=null;render() }.apply { textSize=10f;minWidth=0;setPadding(0,0,0,0) },LinearLayout.LayoutParams(0,dp(48),1f)) };if(page!="Reproductor"&&page!="Letras")root.addView(tabs)
         updateProgress()
+    }
+    private fun applyBackdrop() {
+        val layers=mutableListOf<android.graphics.drawable.Drawable>()
+        layers.add(android.graphics.drawable.ColorDrawable(ink))
+        if(prefs.getBoolean("visual.artwork",true)&&(page=="Reproductor"||page=="Letras")) {
+            current()?.let { t->
+                val file=File(library.covers,t.id+".jpg")
+                if(file.exists()) {
+                    val bounds=BitmapFactory.Options().apply {inJustDecodeBounds=true}
+                    BitmapFactory.decodeFile(file.path,bounds)
+                    bounds.inSampleSize=maxOf(1,maxOf(bounds.outWidth,bounds.outHeight)/48);bounds.inJustDecodeBounds=false
+                    BitmapFactory.decodeFile(file.path,bounds)?.let { source->
+                        val small=Bitmap.createScaledBitmap(source,12,12,true)
+                        val softened=Bitmap.createScaledBitmap(small,256,256,true)
+                        layers.add(android.graphics.drawable.BitmapDrawable(resources,softened).apply {alpha=97;isFilterBitmap=true;gravity=Gravity.FILL})
+                    }
+                }
+            }
+        }
+        layers.add(GradientDrawable(GradientDrawable.Orientation.TR_BL,intArrayOf(0x604A1760,0xCC090C14.toInt(),ink)))
+        root.background=android.graphics.drawable.LayerDrawable(layers.toTypedArray())
     }
     private fun libraryPage() {
         body.addView(label("Tu colección, a tu ritmo.",22f));body.addView(label("${library.tracks.size} pistas"))
@@ -140,7 +164,7 @@ class MainActivity : Activity() {
             val f=File(library.covers,t.id+".jpg")
             if(f.exists()) { val opts=BitmapFactory.Options().apply { inJustDecodeBounds=true };BitmapFactory.decodeFile(f.path,opts);opts.inSampleSize=maxOf(1,maxOf(opts.outWidth,opts.outHeight)/800);opts.inJustDecodeBounds=false;art.setImageBitmap(BitmapFactory.decodeFile(f.path,opts)) }
             else art.setImageResource(android.R.drawable.ic_media_play)
-            art.background=GradientDrawable(GradientDrawable.Orientation.TL_BR,intArrayOf(if(prefs.getBoolean("visual.artwork",true)) Color.rgb(86,48,119) else surface,ink));body.addView(art,LinearLayout.LayoutParams(-1,dp(250)))
+            art.background=GradientDrawable(GradientDrawable.Orientation.TL_BR,intArrayOf(Color.rgb(86,48,119),ink));body.addView(art,LinearLayout.LayoutParams(-1,dp(250)))
         }
         body.addView(label(t.title,24f));body.addView(label(t.artist,18f));body.addView(label(t.album,14f))
         val pair=library.tracks.filter { it.video!=t.video&&normalized(it.title)==normalized(t.title)&&normalized(it.artist)==normalized(t.artist) }
@@ -191,11 +215,12 @@ class MainActivity : Activity() {
     private fun editLyrics(t:Track) {
         editTrack=t
         val editor=EditText(this).apply { setText(library.readLyrics(t));minLines=8;gravity=Gravity.TOP;setTextColor(Color.WHITE) }
+        lyricEditor=editor;lyricEditorTrackId=t.id
         val panel=column();panel.setPadding(dp(16),dp(8),dp(16),dp(8));panel.addView(editor)
         panel.addView(button("Reemplazar desde Archivos") { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { type="*/*";addCategory(Intent.CATEGORY_OPENABLE) },102) })
         panel.addView(button("Exportar LRC") { startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply { type="text/plain";addCategory(Intent.CATEGORY_OPENABLE);putExtra(Intent.EXTRA_TITLE,t.title+".lrc") },103) })
         panel.addView(button("Buscar en LRCLIB") { async({ val matches=library.lookup(t);runOnUiThread { if(matches.isEmpty())toast("Sin coincidencias") else AlertDialog.Builder(this).setTitle("Elige la letra correcta").setItems(matches.map { it.optString("trackName")+" · "+it.optString("artistName") }.toTypedArray()) { _,i ->val text=matches[i].getString("syncedLyrics");library.saveLyrics(t,text,"LRCLIB · selección manual");editor.setText(text) }.show() } },{}) })
-        AlertDialog.Builder(this).setTitle(t.title).setView(panel).setPositiveButton("Guardar") { _,_->library.saveLyrics(t,editor.text.toString(),"Edición manual");render() }.setNeutralButton("Eliminar") { _,_->AlertDialog.Builder(this).setMessage("¿Eliminar la letra? Se conserva la canción.").setPositiveButton("Eliminar") { _,_->library.deleteLyrics(t);render() }.setNegativeButton("Cancelar",null).show() }.setNegativeButton("Cerrar",null).show()
+        AlertDialog.Builder(this).setTitle(t.title).setView(panel).setPositiveButton("Guardar") { _,_->library.saveLyrics(t,editor.text.toString(),"Edición manual");render() }.setNeutralButton("Eliminar") { _,_->AlertDialog.Builder(this).setMessage("¿Eliminar la letra? Se conserva la canción.").setPositiveButton("Eliminar") { _,_->library.deleteLyrics(t);render() }.setNegativeButton("Cancelar",null).show() }.setNegativeButton("Cerrar",null).create().apply {setOnDismissListener {if(lyricEditor===editor){lyricEditor=null;lyricEditorTrackId=null}};show()}
     }
     private fun toggle(text:String,key:String,default:Boolean) { body.addView(Switch(this).apply { this.text=text;setTextColor(Color.WHITE);isChecked=prefs.getBoolean(key,default);setOnCheckedChangeListener { _,v->prefs.edit().putBoolean(key,v).apply();PlaybackService.instance?.applySettings() } }) }
     private fun slider(title:String,key:String,min:Float,max:Float,default:Float) {
@@ -254,7 +279,7 @@ class MainActivity : Activity() {
         when(code) {
             100 -> { val uris=if(data.clipData!=null)(0 until data.clipData!!.itemCount).map {data.clipData!!.getItemAt(it).uri} else listOfNotNull(uri);toast("Importando…");async({uris.forEach {u->var name="Audio";contentResolver.query(u,null,null,null,null)?.use {if(it.moveToFirst())name=it.getString(it.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))};library.importFile(u,name)}}) }
             101 ->if(uri!=null){runCatching {contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION)};toast("Importando carpeta…");async({library.importFolder(uri)})}
-            102 ->if(uri!=null) editTrack?.let {t->async({contentResolver.openInputStream(uri)?.bufferedReader()?.use {library.saveLyrics(t,it.readText(),"Archivo importado")}})}
+            102 ->if(uri!=null) editTrack?.let {t->async({contentResolver.openInputStream(uri)?.bufferedReader()?.use {library.saveLyrics(t,it.readText(),"Archivo importado")}}, {if(lyricEditorTrackId==t.id)lyricEditor?.setText(library.readLyrics(t));render()})}
             103 ->if(uri!=null) editTrack?.let {t->async({contentResolver.openOutputStream(uri)?.bufferedWriter()?.use {it.write(library.readLyrics(t))}}, {toast("LRC exportado")})}
             104 ->if(uri!=null) editTrack?.let {t->async({contentResolver.openInputStream(uri)?.use {input->File(library.covers,t.id+".jpg").outputStream().use {input.copyTo(it)}};thumbs.remove(t.id)})}
         }
