@@ -3,5 +3,8 @@ set +e
 gradle :app:connectedDebugAndroidTest --stacktrace
 result=$?
 adb logcat -d > device-logcat.txt
-adb pull /sdcard/Android/data/com.riv0trill.rivoaudio/files/ screenshots
+mkdir -p screenshots
+for name in player lyrics settings; do
+  adb pull "/sdcard/Download/rivo-$name.png" screenshots/
+done
 exit "$result"

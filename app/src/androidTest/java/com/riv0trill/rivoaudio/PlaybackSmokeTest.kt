@@ -41,12 +41,15 @@ class PlaybackSmokeTest {
             Thread.sleep(1500)
             instrumentation.runOnMainSync {assertTrue(PlaybackService.instance!!.player.isPlaying);assertTrue(PlaybackService.instance!!.player.currentPosition>0)}
             device.takeScreenshot(File(context.getExternalFilesDir(null),"player.png"))
+            device.executeShellCommand("cp ${context.getExternalFilesDir(null)}/player.png /sdcard/Download/rivo-player.png")
             device.findObject(UiSelector().text("Letras sincronizadas")).click()
             assertTrue(device.findObject(UiSelector().text("Editar / reemplazar / buscar letra")).waitForExists(5000))
             device.takeScreenshot(File(context.getExternalFilesDir(null),"lyrics.png"))
+            device.executeShellCommand("cp ${context.getExternalFilesDir(null)}/lyrics.png /sdcard/Download/rivo-lyrics.png")
             device.findObject(UiSelector().text("⋯")).click()
             assertTrue(device.findObject(UiSelector().text("Opciones visuales")).waitForExists(5000))
             device.takeScreenshot(File(context.getExternalFilesDir(null),"settings.png"))
+            device.executeShellCommand("cp ${context.getExternalFilesDir(null)}/settings.png /sdcard/Download/rivo-settings.png")
             instrumentation.runOnMainSync { val p=context.getSharedPreferences("rivo",0);p.edit().putFloat("gain.2",3f).putInt("eq.bands",31).commit();PlaybackService.instance!!.applySettings() }
             Thread.sleep(500)
             instrumentation.runOnMainSync {assertTrue(PlaybackService.instance!!.player.isPlaying);PlaybackService.instance!!.player.pause()}

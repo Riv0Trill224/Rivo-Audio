@@ -208,7 +208,8 @@ class MainActivity : Activity() {
         body.addView(label("Motor de audio",22f));toggle("Ecualizador activo","eq.enabled",true);slider("Velocidad","audio.rate",0.5f,2f,1f);slider("Preamplificación dB","audio.preamp",-12f,0f,0f);addButton("Ecualizador y presets") {page="EQ";render()}
         val am=getSystemService(AUDIO_SERVICE) as android.media.AudioManager
         body.addView(label("Salidas disponibles: "+am.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS).joinToString { it.productName.toString() }))
-        body.addView(label("${DeviceProfile.detect()} · ${controller?.audioAttributes?.contentType ?: 0}\nAndroid administra la ruta al DAC, Bluetooth o altavoz. Esta versión no garantiza salida bit perfect.",13f))
+        val audio=PlaybackService.instance?.player?.audioFormat
+        body.addView(label("${DeviceProfile.detect()} · ${audio?.sampleRate ?: 0} Hz · ${audio?.channelCount ?: 0} canales\nAndroid administra la ruta al DAC, Bluetooth o altavoz. Esta versión no garantiza salida bit perfect.",13f))
     }
     private fun eqPage() {
         toggle("Ecualizador activo","eq.enabled",true)

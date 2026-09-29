@@ -32,7 +32,7 @@ class Library(private val context: Context) {
     private val index = File(context.filesDir,"library.json")
     private val lyricIndex = File(lyrics,"index.json")
     val worker = Executors.newSingleThreadExecutor()
-    var tracks = mutableListOf<Track>(); private set
+    @Volatile var tracks: List<Track> = emptyList(); private set
     init { runCatching { val a=JSONArray(index.readText()); tracks=(0 until a.length()).map { Track.from(a.getJSONObject(it)) }.toMutableList() } }
     @Synchronized fun save() { val f=File(index.path+".tmp"); f.writeText(JSONArray(tracks.map { it.json() }).toString()); check(f.renameTo(index)) }
     @Synchronized fun importFile(uri: Uri, name: String, refresh: Boolean = false): Track? {
@@ -50,8 +50,8 @@ class Library(private val context: Context) {
             val parts=name.substringBeforeLast('.').split(" - ")
             Track(id,file.path,m.extractMetadata(7) ?: if(parts.size>1)parts.drop(1).joinToString(" - ") else name.substringBeforeLast('.'),m.extractMetadata(2) ?: if(parts.size>1)parts[0] else "Artista desconocido",m.extractMetadata(1) ?: "Sin álbum",m.extractMetadata(9)?.toLongOrNull() ?: 0,ext in listOf("mp4","m4v","mov"),verified=m.extractMetadata(7)!=null&&m.extractMetadata(2)!=null)
         } finally { m.release() }
-        if(existing!=null){track.title=existing.title;track.artist=existing.artist;track.album=existing.album;track.rating=existing.rating;track.plays=existing.plays;track.verified=existing.verified;track.folder=existing.folder;track.chartNote=existing.chartNote;tracks.remove(existing)}
-        tracks.add(track); tracks.sortBy { it.title.lowercase() }; save(); return track
+        if(existing!=null){track.title=existing.title;track.artist=existing.artist;track.album=existing.album;track.rating=existing.rating;track.plays=existing.plays;track.verified=existing.verified;track.folder=existing.folder;track.chartNote=existing.chartNote;tracks=tracks.filter {it.id!=existing.id}}
+        tracks=(tracks+track).sortedBy {it.title.lowercase()};save();return track
     }
     fun importFolder(uri: Uri) {
         val folder=DocumentFile.fromTreeUri(context,uri) ?: error("Carpeta no accesible")
@@ -71,7 +71,7 @@ class Library(private val context: Context) {
         File(context.filesDir,"folders.json").writeText(folders.toString())
     }
     fun folders()=runCatching {JSONArray(File(context.filesDir,"folders.json").readText())}.getOrDefault(JSONArray())
-    @Synchronized fun removeFolder(uri:String) {tracks.filter {it.folder==uri}.forEach {File(it.path).delete()};tracks.removeAll {it.folder==uri};save();val old=folders();val remaining=JSONArray();for(i in 0 until old.length())if(old.getJSONObject(i).optString("uri")!=uri)remaining.put(old.getJSONObject(i));File(context.filesDir,"folders.json").writeText(remaining.toString())}
+    @Synchronized fun removeFolder(uri:String) {tracks.filter {it.folder==uri}.forEach {File(it.path).delete()};tracks=tracks.filter {it.folder!=uri};save();val old=folders();val remaining=JSONArray();for(i in 0 until old.length())if(old.getJSONObject(i).optString("uri")!=uri)remaining.put(old.getJSONObject(i));File(context.filesDir,"folders.json").writeText(remaining.toString())}
 
     @Synchronized fun records(): JSONObject = runCatching { JSONObject(lyricIndex.readText()) }.getOrDefault(JSONObject())
     fun lyricFile(t: Track)=File(lyrics,t.id+".lrc")
