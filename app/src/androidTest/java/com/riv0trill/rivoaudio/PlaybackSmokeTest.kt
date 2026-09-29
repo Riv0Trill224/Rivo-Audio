@@ -50,7 +50,6 @@ class PlaybackSmokeTest {
             assertTrue(footer.exists());assertTrue("Footer must remain on screen",footer.visibleBounds.height()>=40*context.resources.displayMetrics.density)
             device.takeScreenshot(File(context.getExternalFilesDir(null),"player.png"))
             device.executeShellCommand("cp ${context.getExternalFilesDir(null)}/player.png /sdcard/Download/rivo-player.png")
-            androidx.test.uiautomator.UiScrollable(UiSelector().scrollable(true)).scrollIntoView(UiSelector().description("Letras sincronizadas"))
             device.findObject(UiSelector().description("Letras sincronizadas")).click()
             assertTrue(device.findObject(UiSelector().text("Editar / reemplazar / buscar letra")).waitForExists(5000))
             device.takeScreenshot(File(context.getExternalFilesDir(null),"lyrics.png"))
