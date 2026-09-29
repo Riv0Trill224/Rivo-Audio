@@ -38,15 +38,17 @@ class PlaybackService : MediaSessionService() {
             override fun buildAudioSink(context:Context,enableFloatOutput:Boolean,enableAudioOutputPlaybackParams:Boolean):AudioSink = DefaultAudioSink.Builder(context).setAudioProcessors(arrayOf(eq)).build()
         }
         player=ExoPlayer.Builder(this,renderers).build()
+        player.setWakeMode(C.WAKE_MODE_LOCAL)
+        player.repeatMode=Player.REPEAT_MODE_OFF
         player.setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(),true)
         player.setHandleAudioBecomingNoisy(true)
         player.addListener(object:Player.Listener {
             override fun onMediaItemTransition(item:MediaItem?,reason:Int) {
                 val track=library.tracks.firstOrNull {it.id==item?.mediaId} ?: return
                 val previous=lastTrack
-                val same=previous!=null&&previous.video!=track.video&&normalized(previous.title)==normalized(track.title)&&normalized(previous.artist)==normalized(track.artist)
+                val same=previous!=null&&exactPair(previous,track)
                 lastTrack=track
-                logicalTrack=if(track.video)library.tracks.firstOrNull {!it.video&&normalized(it.title)==normalized(track.title)&&normalized(it.artist)==normalized(track.artist)} ?: track else track
+                logicalTrack=if(track.video)library.tracks.filter {exactPair(it,track)}.singleOrNull() ?: track else track
                 if(!same){listened=0;lastTick=0;recorded=false;startedAt=System.currentTimeMillis()/1000;logicalTrack?.let {t->library.autoLyrics(t);library.worker.execute {lastFM.nowPlaying(t)}}}
             }
             override fun onIsPlayingChanged(isPlaying:Boolean) { handler.removeCallbacks(sample);lastTick=0;if(isPlaying) handler.post(sample) }

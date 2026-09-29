@@ -17,15 +17,17 @@ fun stableID(value: String) = MessageDigest.getInstance("SHA-256").digest(value.
 fun normalized(value: String) = Normalizer.normalize(value.lowercase(), Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "").replace(Regex("[^a-z0-9]+"), " ").trim()
 fun fetchText(url: String): String {
     val c = URL(url).openConnection() as java.net.HttpURLConnection
-    c.connectTimeout = 15000; c.readTimeout = 15000; c.setRequestProperty("User-Agent", "RivoAudio/0.2.0")
+    c.connectTimeout = 15000; c.readTimeout = 15000; c.setRequestProperty("User-Agent", "RivoAudio/0.3.0 (https://github.com/Riv0Trill224/Rivo-Audio)")
     return try { check(c.responseCode in 200..299) { "Servicio no disponible (${c.responseCode})" }; c.inputStream.bufferedReader().use { it.readText() } } finally { c.disconnect() }
 }
 
-data class Track(val id: String, val path: String, var title: String, var artist: String, var album: String, val duration: Long, val video: Boolean, var rating: Int = 0, var plays: Int = 0, var verified: Boolean = false, var folder: String = "", var chartNote: String = "") {
-    fun json() = JSONObject().put("id",id).put("path",path).put("title",title).put("artist",artist).put("album",album).put("duration",duration).put("video",video).put("rating",rating).put("plays",plays).put("verified",verified).put("folder",folder).put("chartNote",chartNote)
-    companion object { fun from(j: JSONObject) = Track(j.getString("id"),j.getString("path"),j.getString("title"),j.getString("artist"),j.getString("album"),j.optLong("duration"),j.optBoolean("video"),j.optInt("rating"),j.optInt("plays"),j.optBoolean("verified"),j.optString("folder"),j.optString("chartNote")) }
+data class Track(val id: String, val path: String, var title: String, var artist: String, var album: String, val duration: Long, val video: Boolean, var rating: Int = 0, var plays: Int = 0, var verified: Boolean = false, var folder: String = "", var chartNote: String = "", var sourceName: String = "", var sourceUri: String = "") {
+    fun json() = JSONObject().put("id",id).put("path",path).put("title",title).put("artist",artist).put("album",album).put("duration",duration).put("video",video).put("rating",rating).put("plays",plays).put("verified",verified).put("folder",folder).put("chartNote",chartNote).put("sourceName",sourceName).put("sourceUri",sourceUri)
+    companion object { fun from(j: JSONObject) = Track(j.getString("id"),j.getString("path"),j.getString("title"),j.getString("artist"),j.getString("album"),j.optLong("duration"),j.optBoolean("video"),j.optInt("rating"),j.optInt("plays"),j.optBoolean("verified"),j.optString("folder"),j.optString("chartNote"),j.optString("sourceName"),j.optString("sourceUri")) }
 }
 class Library(private val context: Context) {
+    val catalog=Catalog(context)
+    @Volatile var scanning=false; private set
     val root = File(context.filesDir,"Music").apply { mkdirs() }
     val lyrics = File(context.filesDir,"Lyrics").apply { mkdirs() }
     val covers = File(context.filesDir,"Artwork").apply { mkdirs() }
@@ -38,17 +40,18 @@ class Library(private val context: Context) {
     @Synchronized fun importFile(uri: Uri, name: String, refresh: Boolean = false): Track? {
         val ext=name.substringAfterLast('.',"").lowercase()
         if(ext !in listOf("mp3","m4a","aac","alac","wav","aif","aiff","caf","flac","mp4","m4v","mov","ogg","opus")) return null
-        val id=stableID(uri.toString()); val existing=tracks.firstOrNull {it.id==id}; if(existing!=null&&!refresh)return existing
+        val id=stableID(uri.toString()); val existing=tracks.firstOrNull {it.id==id}; if(existing!=null&&!refresh){if(existing.sourceName.isBlank()){existing.sourceName=name;existing.sourceUri=uri.toString();save()};return existing}
         val file=File(root,"$id.$ext")
-        context.contentResolver.openInputStream(uri)?.use { input -> file.outputStream().use { input.copyTo(it) } } ?: error("No se puede leer $name")
+        val temp=File(file.path+".import");context.contentResolver.openInputStream(uri)?.use { input -> temp.outputStream().use { input.copyTo(it) } } ?: error("No se puede leer $name");check(temp.length()>0);check(temp.renameTo(file))
         check(file.length()>0) { "Archivo vacío: $name" }
         val m=MediaMetadataRetriever()
         val track=try {
             m.setDataSource(file.path)
             val cover=m.embeddedPicture
-            if(cover!=null) File(covers,"$id.jpg").writeBytes(cover)
+            if(cover!=null&&!File(covers,"$id.jpg").exists()) File(covers,"$id.jpg").writeBytes(cover)
+            val info=catalog.detail(id);if(info.optString("genre").isBlank())info.put("genre",m.extractMetadata(6) ?: "");if(info.optString("year").isBlank())info.put("year",m.extractMetadata(8) ?: "");catalog.saveDetail(id,info)
             val parts=name.substringBeforeLast('.').split(" - ")
-            Track(id,file.path,m.extractMetadata(7) ?: if(parts.size>1)parts.drop(1).joinToString(" - ") else name.substringBeforeLast('.'),m.extractMetadata(2) ?: if(parts.size>1)parts[0] else "Artista desconocido",m.extractMetadata(1) ?: "Sin álbum",m.extractMetadata(9)?.toLongOrNull() ?: 0,ext in listOf("mp4","m4v","mov"),verified=m.extractMetadata(7)!=null&&m.extractMetadata(2)!=null)
+            Track(id,file.path,m.extractMetadata(7) ?: if(parts.size>1)parts.drop(1).joinToString(" - ") else name.substringBeforeLast('.'),m.extractMetadata(2) ?: if(parts.size>1)parts[0] else "Artista desconocido",m.extractMetadata(1) ?: "Sin álbum",m.extractMetadata(9)?.toLongOrNull() ?: 0,ext in listOf("mp4","m4v","mov"),verified=m.extractMetadata(7)!=null&&m.extractMetadata(2)!=null,sourceName=name,sourceUri=uri.toString())
         } finally { m.release() }
         if(existing!=null){track.title=existing.title;track.artist=existing.artist;track.album=existing.album;track.rating=existing.rating;track.plays=existing.plays;track.verified=existing.verified;track.folder=existing.folder;track.chartNote=existing.chartNote;tracks=tracks.filter {it.id!=existing.id}}
         tracks=(tracks+track).sortedBy {it.title.lowercase()};save();return track
@@ -69,6 +72,19 @@ class Library(private val context: Context) {
         visit(folder);save()
         val folders=folders();if((0 until folders.length()).none {folders.getJSONObject(it).optString("uri")==uri.toString()})folders.put(JSONObject().put("uri",uri.toString()).put("name",folder.name ?: "Carpeta"))
         File(context.filesDir,"folders.json").writeText(folders.toString())
+    }
+    fun fullScan():String {
+        synchronized(this){check(!scanning){"Ya hay un escaneo en curso"};scanning=true}
+        val errors=mutableListOf<String>()
+        try {
+            folders().objects().forEach {f->runCatching {importFolder(Uri.parse(f.getString("uri")))}.onFailure {errors.add(f.optString("name"))}}
+            tracks.toList().filter {it.folder.isBlank()&&it.sourceUri.isNotBlank()}.forEach {t->runCatching {importFile(Uri.parse(t.sourceUri),t.sourceName,true)}.onFailure {errors.add(t.title)}}
+            val known=tracks.map {File(it.path).canonicalPath}.toSet()
+            root.walkTopDown().filter {it.isFile&&it.canonicalPath !in known}.toList().forEach {f->runCatching {importFile(Uri.fromFile(f),f.name)}}
+            tracks.toList().forEach {t->if(File(t.path).exists()){val m=MediaMetadataRetriever();runCatching {m.setDataSource(t.path);val info=catalog.detail(t.id);if(info.optString("genre").isBlank())info.put("genre",m.extractMetadata(6) ?: "");if(info.optString("year").isBlank())info.put("year",m.extractMetadata(8) ?: "");catalog.saveDetail(t.id,info)};m.release()}}
+            synchronized(this){tracks=tracks.filter {File(it.path).exists()};save()}
+            return "Escaneo completo: ${tracks.size} pistas."+(if(errors.isEmpty())"" else "\nFuentes no accesibles: "+errors.distinct().joinToString())
+        }finally{scanning=false}
     }
     fun folders()=runCatching {JSONArray(File(context.filesDir,"folders.json").readText())}.getOrDefault(JSONArray())
     @Synchronized fun removeFolder(uri:String) {tracks.filter {it.folder==uri}.forEach {File(it.path).delete()};tracks=tracks.filter {it.folder!=uri};save();val old=folders();val remaining=JSONArray();for(i in 0 until old.length())if(old.getJSONObject(i).optString("uri")!=uri)remaining.put(old.getJSONObject(i));File(context.filesDir,"folders.json").writeText(remaining.toString())}

@@ -7,4 +7,7 @@ mkdir -p screenshots
 for name in player lyrics settings; do
   adb pull "/sdcard/Download/rivo-$name.png" screenshots/
 done
+
+
+adb pull /sdcard/Download/rivo-video.png screenshots/rivo-video.png || true
 exit "$result"
