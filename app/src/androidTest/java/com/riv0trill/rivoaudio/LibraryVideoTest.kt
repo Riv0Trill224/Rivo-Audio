@@ -40,15 +40,22 @@ class LibraryVideoTest {
         val parsed=MusicBrainzCatalog.parseCredits(JSONObject("""{"artist-credit":[{"name":"Singer"}],"first-release-date":"2020-01-01","relations":[{"type":"producer","artist":{"name":"Producer"}},{"work":{"relations":[{"type":"lyricist","artist":{"name":"Writer"}}]}}]}"""),"test")
         assertTrue(parsed.getString("credits").contains("Letrista: Writer"));assertEquals("2020",parsed.getString("year"))
         library.saveLyrics(audio,"[00:00.00]Letra en video\n[00:02.00]Segunda línea","Prueba")
+        fun awaitPlayer(check:()->Boolean){
+            val deadline=android.os.SystemClock.elapsedRealtime()+7000
+            var ready=false
+            do {instrumentation.runOnMainSync {ready=check()};if(ready)return;Thread.sleep(100)} while(android.os.SystemClock.elapsedRealtime()<deadline)
+            assertTrue("Timed out waiting for player transition",ready)
+        }
         val device=UiDevice.getInstance(instrumentation)
         ActivityScenario.launch(MainActivity::class.java).use {
             assertTrue(device.findObject(UiSelector().text("Tracks")).waitForExists(15000))
             fun item(t:Track)=MediaItem.Builder().setMediaId(t.id).setUri(Uri.fromFile(File(t.path))).setMediaMetadata(MediaMetadata.Builder().setTitle(t.title).setArtist(t.artist).build()).build()
-            instrumentation.runOnMainSync {val p=PlaybackService.instance!!.player;p.setMediaItems(listOf(item(audio),item(next)));p.repeatMode=Player.REPEAT_MODE_OFF;p.prepare();p.play()}
+            instrumentation.runOnMainSync {val p=PlaybackService.instance!!.player;p.setMediaItems(listOf(item(audio),item(next)));p.repeatMode=Player.REPEAT_MODE_OFF;p.prepare();p.pause()}
             Thread.sleep(600)
             val mini=device.findObject(UiSelector().textContains("Abrir reproductor"));if(mini.exists())mini.click()else device.findObject(UiSelector().text("Selecciona una canción")).click()
             assertTrue(device.findObject(UiSelector().text("Cambiar a Video")).waitForExists(5000));device.findObject(UiSelector().text("Cambiar a Video")).click()
-            instrumentation.runOnMainSync {val p=PlaybackService.instance!!.player;assertEquals(video.id,p.currentMediaItem!!.mediaId);p.pause()}
+            awaitPlayer {PlaybackService.instance!!.player.currentMediaItem?.mediaId==video.id}
+            instrumentation.runOnMainSync {PlaybackService.instance!!.player.pause()}
             assertTrue(device.findObject(UiSelector().text("Pantalla completa")).waitForExists(5000));device.findObject(UiSelector().text("Pantalla completa")).click()
             val immersiveTip=device.findObject(UiSelector().text("Got it"));if(immersiveTip.waitForExists(2500))immersiveTip.click()
             val fullscreenOpened=device.findObject(UiSelector().text("Cerrar pantalla completa")).waitForExists(5000)
@@ -63,7 +70,7 @@ class LibraryVideoTest {
             device.wakeUp();device.executeShellCommand("wm dismiss-keyguard");device.setOrientationNatural();Thread.sleep(400)
             device.takeScreenshot(File(context.getExternalFilesDir(null),"video.png"));device.executeShellCommand("cp ${context.getExternalFilesDir(null)}/video.png /sdcard/Download/rivo-video.png")
             instrumentation.runOnMainSync {val p=PlaybackService.instance!!.player;p.seekTo(p.duration-100)}
-            Thread.sleep(1700)
+            awaitPlayer {PlaybackService.instance!!.player.currentMediaItem?.mediaId==next.id}
             instrumentation.runOnMainSync {val p=PlaybackService.instance!!.player;assertEquals(next.id,p.currentMediaItem!!.mediaId);assertEquals(Player.REPEAT_MODE_OFF,p.repeatMode);p.pause()}
         }
         device.unfreezeRotation()
