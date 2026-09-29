@@ -37,12 +37,13 @@ class PlaybackSmokeTest {
         val device=UiDevice.getInstance(instrumentation)
         ActivityScenario.launch(MainActivity::class.java).use {
             val row=device.findObject(UiSelector().text("Neon Nights"));assertTrue(row.waitForExists(20000));row.click()
-            assertTrue(device.findObject(UiSelector().text("Letras sincronizadas")).waitForExists(10000))
+            assertTrue(device.findObject(UiSelector().description("Anterior")).waitForExists(10000))
             Thread.sleep(1500)
             instrumentation.runOnMainSync {assertTrue(PlaybackService.instance!!.player.isPlaying);assertTrue(PlaybackService.instance!!.player.currentPosition>0)}
             device.takeScreenshot(File(context.getExternalFilesDir(null),"player.png"))
             device.executeShellCommand("cp ${context.getExternalFilesDir(null)}/player.png /sdcard/Download/rivo-player.png")
-            device.findObject(UiSelector().text("Letras sincronizadas")).click()
+            androidx.test.uiautomator.UiScrollable(UiSelector().scrollable(true)).scrollIntoView(UiSelector().description("Letras sincronizadas"))
+            device.findObject(UiSelector().description("Letras sincronizadas")).click()
             assertTrue(device.findObject(UiSelector().text("Editar / reemplazar / buscar letra")).waitForExists(5000))
             device.takeScreenshot(File(context.getExternalFilesDir(null),"lyrics.png"))
             device.executeShellCommand("cp ${context.getExternalFilesDir(null)}/lyrics.png /sdcard/Download/rivo-lyrics.png")

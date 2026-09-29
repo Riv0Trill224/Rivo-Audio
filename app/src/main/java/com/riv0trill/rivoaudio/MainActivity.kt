@@ -40,6 +40,7 @@ class MainActivity : Activity() {
     private var progress:SeekBar?=null
     private var timeLabel:TextView?=null
     private var playButton:Button?=null
+    private var endTimeLabel:TextView?=null
     private var mini:Button?=null
     private val accent=Color.rgb(212,173,255)
     private val ink=Color.rgb(9,12,20)
@@ -75,9 +76,17 @@ class MainActivity : Activity() {
         if(controller==null||PlaybackService.instance==null)return
         videoSurface?.player=null;videoSurface=null
         applyBackdrop()
-        root.removeAllViews();progress=null;timeLabel=null;playButton=null;lyricView=null;lyricScroll=null;lyricIndex=-1
-        val heading=row();heading.addView(button("‹") { page="Canciones";selectedArtist=null;render() });heading.addView(label(if(page=="Reproductor") "RIVØ AUDIO" else page,24f),LinearLayout.LayoutParams(0,-2,1f));heading.addView(button("⋯") { page="Ajustes";render() });root.addView(heading)
-        body=column();val scroll=ScrollView(this);scroll.addView(body);root.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
+        root.removeAllViews();progress=null;timeLabel=null;endTimeLabel=null;playButton=null;lyricView=null;lyricScroll=null;lyricIndex=-1
+        val heading=row()
+        heading.setPadding(dp(8),dp(8),dp(8),dp(16))
+        val back=button(if(page=="Reproductor")"⌄" else "‹") {page="Canciones";selectedArtist=null;render()}
+        heading.addView(back,LinearLayout.LayoutParams(dp(42),dp(42)))
+        val title=column();title.gravity=Gravity.CENTER
+        title.addView(label(if(page=="Reproductor")"R I V Ø   A U D I O" else page,if(page=="Reproductor")13f else 22f).apply {gravity=Gravity.CENTER;setTypeface(null,Typeface.BOLD)})
+        if(page=="Reproductor")title.addView(label("T U  B I B L I O T E C A",9f).apply {setTextColor(Color.GRAY);gravity=Gravity.CENTER;setPadding(0,0,0,0)})
+        heading.addView(title,LinearLayout.LayoutParams(0,-2,1f))
+        heading.addView(button("⋯") {page="Ajustes";render()},LinearLayout.LayoutParams(dp(42),dp(42)));root.addView(heading)
+        body=column();body.setPadding(dp(12),0,dp(12),0);val scroll=ScrollView(this);scroll.addView(body);root.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
         when(page) {
             "Canciones" -> libraryPage()
             "Artistas" -> artistsPage()
@@ -90,7 +99,7 @@ class MainActivity : Activity() {
             "Last.fm" -> lastFMPage()
             "Administrar letras" -> managerPage()
         }
-        mini=button(current()?.let { "${it.title} · Abrir reproductor" } ?: "Selecciona una canción") { page="Reproductor";render() };root.addView(mini)
+        mini=button(current()?.let { "${it.title} · Abrir reproductor" } ?: "Selecciona una canción") { page="Reproductor";render() };if(page!="Reproductor")root.addView(mini)
         val tabs=row();listOf("Canciones","Artistas","EQ","Escuchas","Transferir").forEach { name -> tabs.addView(button(name) { page=name;selectedArtist=null;render() }.apply { textSize=10f;minWidth=0;setPadding(0,0,0,0) },LinearLayout.LayoutParams(0,dp(48),1f)) };if(page!="Reproductor"&&page!="Letras")root.addView(tabs)
         updateProgress()
     }
@@ -160,36 +169,69 @@ class MainActivity : Activity() {
         val t=current() ?: run { body.addView(label("Selecciona una canción"));return }
         if(t.video) {videoSurface=PlayerView(this).apply {player=controller;useController=true};body.addView(videoSurface,LinearLayout.LayoutParams(-1,dp(220)))}
         else {
+            val size=minOf(resources.displayMetrics.widthPixels-dp(80),(resources.displayMetrics.heightPixels*0.31).toInt(),dp(380))
+            val frame=FrameLayout(this)
+            frame.background=GradientDrawable(GradientDrawable.Orientation.TL_BR,intArrayOf(Color.rgb(133,34,158),ink,Color.rgb(76,82,160))).apply {cornerRadius=dp(32).toFloat()}
+            frame.clipToOutline=true
             val art=ImageView(this);art.scaleType=ImageView.ScaleType.CENTER_CROP
-            val f=File(library.covers,t.id+".jpg")
-            if(f.exists()) { val opts=BitmapFactory.Options().apply { inJustDecodeBounds=true };BitmapFactory.decodeFile(f.path,opts);opts.inSampleSize=maxOf(1,maxOf(opts.outWidth,opts.outHeight)/800);opts.inJustDecodeBounds=false;art.setImageBitmap(BitmapFactory.decodeFile(f.path,opts)) }
-            else art.setImageResource(android.R.drawable.ic_media_play)
-            art.background=GradientDrawable(GradientDrawable.Orientation.TL_BR,intArrayOf(Color.rgb(86,48,119),ink));body.addView(art,LinearLayout.LayoutParams(-1,dp(250)))
+            val file=File(library.covers,t.id+".jpg")
+            if(file.exists()) {
+                val opts=BitmapFactory.Options().apply {inJustDecodeBounds=true};BitmapFactory.decodeFile(file.path,opts)
+                opts.inSampleSize=maxOf(1,maxOf(opts.outWidth,opts.outHeight)/800);opts.inJustDecodeBounds=false
+                art.setImageBitmap(BitmapFactory.decodeFile(file.path,opts));frame.addView(art,FrameLayout.LayoutParams(-1,-1))
+            } else frame.addView(object:View(this) {
+                val pen=Paint(Paint.ANTI_ALIAS_FLAG).apply {color=0x80FFFFFF.toInt();strokeWidth=dp(2).toFloat();strokeCap=Paint.Cap.ROUND}
+                override fun onDraw(c:Canvas) {super.onDraw(c);floatArrayOf(.16f,.38f,.62f,.32f,.45f,.23f).forEachIndexed {i,v->val x=width/2f+(i-2.5f)*dp(9);c.drawLine(x,height/2f-v*dp(90)/2,x,height/2f+v*dp(90)/2,pen)}}
+            },FrameLayout.LayoutParams(-1,-1))
+            val badge=label(File(t.path).extension.uppercase(),11f).apply {setTypeface(null,Typeface.BOLD);background=GradientDrawable().apply {setColor(0x60606070);cornerRadius=dp(18).toFloat()}}
+            frame.addView(badge,FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM or Gravity.END).apply {setMargins(0,0,dp(14),dp(14))})
+            body.addView(frame,LinearLayout.LayoutParams(size,size).apply {gravity=Gravity.CENTER_HORIZONTAL;bottomMargin=dp(12)})
         }
-        body.addView(label(t.title,24f));body.addView(label(t.artist,18f));body.addView(label(t.album,14f))
+        val info=row();info.gravity=Gravity.TOP
+        val metadata=column()
+        metadata.addView(label(t.title,22f).apply {setTypeface(null,Typeface.BOLD);maxLines=2;ellipsize=android.text.TextUtils.TruncateAt.END})
+        metadata.addView(label(t.artist,16f).apply {maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END;setTextColor(Color.LTGRAY);setPadding(dp(8),0,dp(8),dp(4))})
+        metadata.addView(label(t.album,12f).apply {maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END;setTextColor(Color.GRAY);setPadding(dp(8),0,dp(8),dp(8))})
+        info.addView(metadata,LinearLayout.LayoutParams(0,-2,1f))
+        info.addView(button(if(t.rating==5)"★" else "☆") {t.rating=if(t.rating==5)0 else 5;library.save();render()}.apply {textSize=26f;setBackgroundColor(Color.TRANSPARENT);contentDescription="Marcar con cinco estrellas"},LinearLayout.LayoutParams(dp(48),dp(48)));body.addView(info)
         val pair=library.tracks.filter { it.video!=t.video&&normalized(it.title)==normalized(t.title)&&normalized(it.artist)==normalized(t.artist) }
         if(pair.isNotEmpty()) addButton(if(t.video) "Cambiar a Audio" else "Cambiar a Video") {
             fun switch(other:Track) { val pos=controller!!.currentPosition;val playing=controller!!.playWhenReady;controller!!.setMediaItem(mediaItem(other),pos);controller!!.prepare();controller!!.playWhenReady=playing;render() }
             if(pair.size==1)switch(pair[0]) else AlertDialog.Builder(this).setTitle("Selecciona la versión").setItems(pair.map { it.title+" · "+File(it.path).extension }.toTypedArray()) { _,i->switch(pair[i]) }.show()
         }
-        progress=SeekBar(this).apply { max=1000;setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener { override fun onProgressChanged(s:SeekBar?,p:Int,user:Boolean) { if(user)controller?.seekTo(p.toLong()) };override fun onStartTrackingTouch(s:SeekBar?){};override fun onStopTrackingTouch(s:SeekBar?){} }) };body.addView(progress)
-        timeLabel=label("");body.addView(timeLabel)
-        val controls=row();controls.gravity=Gravity.CENTER
-        controls.addView(button("|◀") { if(controller!!.currentPosition>3000)controller!!.seekTo(0) else controller!!.seekToPreviousMediaItem() })
-        playButton=button("▶") { controller?.let { if(it.isPlaying)it.pause() else it.play() } };controls.addView(playButton)
-        controls.addView(button("▶|") { controller?.seekToNextMediaItem() });body.addView(controls)
-        addButton("Letras sincronizadas") { page="Letras";render() }
-        addButton("Ecualizador") { page="EQ";render() }
-        addButton("Cola · ${controller!!.mediaItemCount} pistas") { AlertDialog.Builder(this).setTitle("Cola").setItems((0 until controller!!.mediaItemCount).map { controller!!.getMediaItemAt(it).mediaMetadata.title.toString() }.toTypedArray()) { _,i->controller!!.seekToDefaultPosition(i);controller!!.play() }.show() }
-        addButton("Aleatorio: ${controller!!.shuffleModeEnabled}") { controller!!.shuffleModeEnabled=!controller!!.shuffleModeEnabled;render() }
-        addButton("Repetir canción: ${controller!!.repeatMode==Player.REPEAT_MODE_ONE}") { controller!!.repeatMode=if(controller!!.repeatMode==Player.REPEAT_MODE_ONE)Player.REPEAT_MODE_ALL else Player.REPEAT_MODE_ONE;render() }
-        addButton("Editar información y carátula") { editMetadata(t) }
+        val options=row()
+        options.addView(button("☷  EQ") {page="EQ";render()},LinearLayout.LayoutParams(dp(80),dp(40)))
+        options.addView(View(this),LinearLayout.LayoutParams(0,1,1f))
+        options.addView(button("↻¹") {controller!!.repeatMode=if(controller!!.repeatMode==Player.REPEAT_MODE_ONE)Player.REPEAT_MODE_ALL else Player.REPEAT_MODE_ONE;render()}.apply {contentDescription="Repetir canción";setTextColor(if(controller!!.repeatMode==Player.REPEAT_MODE_ONE)accent else Color.GRAY);setBackgroundColor(Color.TRANSPARENT)},LinearLayout.LayoutParams(dp(48),dp(44)))
+        options.addView(button("⤨") {controller!!.shuffleModeEnabled=!controller!!.shuffleModeEnabled;render()}.apply {contentDescription="Aleatorio";setTextColor(if(controller!!.shuffleModeEnabled)accent else Color.GRAY);setBackgroundColor(Color.TRANSPARENT)},LinearLayout.LayoutParams(dp(48),dp(44)));body.addView(options)
+        progress=SeekBar(this).apply {max=1000;thumbTintList=android.content.res.ColorStateList.valueOf(Color.WHITE);progressTintList=android.content.res.ColorStateList.valueOf(accent);contentDescription="Posición de reproducción";setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(s:SeekBar?,p:Int,user:Boolean){if(user)controller?.seekTo(p.toLong())}
+            override fun onStartTrackingTouch(s:SeekBar?){};override fun onStopTrackingTouch(s:SeekBar?){}
+        })};body.addView(progress,LinearLayout.LayoutParams(-1,dp(36)))
+        val times=row();timeLabel=label("",12f).apply {setTextColor(Color.GRAY)};endTimeLabel=label("",12f).apply {setTextColor(Color.GRAY);gravity=Gravity.END}
+        times.addView(timeLabel,LinearLayout.LayoutParams(0,-2,1f));times.addView(endTimeLabel,LinearLayout.LayoutParams(0,-2,1f));body.addView(times)
+        val controls=row();controls.gravity=Gravity.CENTER;controls.setPadding(0,dp(10),0,dp(14))
+        fun transport(text:String,description:String,large:Boolean=false,action:()->Unit):Button {
+            val size=dp(if(large)84 else 60)
+            return button(text,action).apply {contentDescription=description;textSize=if(large)30f else 23f;setTextColor(if(large)ink else Color.WHITE);background=GradientDrawable().apply {shape=GradientDrawable.OVAL;setColor(if(large)accent else 0x70000000)};layoutParams=LinearLayout.LayoutParams(size,size).apply {setMargins(dp(10),0,dp(10),0)}}
+        }
+        controls.addView(transport("|◀","Anterior") {if(controller!!.currentPosition>3000)controller!!.seekTo(0) else controller!!.seekToPreviousMediaItem()})
+        playButton=transport("▶","Reproducir",true) {controller?.let {if(it.isPlaying)it.pause() else it.play()}};controls.addView(playButton)
+        controls.addView(transport("▶|","Siguiente") {controller?.seekToNextMediaItem()});body.addView(controls)
+        val audio=PlaybackService.instance?.player?.audioFormat
+        body.addView(label("${File(t.path).extension.uppercase()}  ·  ${audio?.sampleRate ?: 0} Hz  ·  ${audio?.channelCount ?: 0} canales",11f).apply {gravity=Gravity.CENTER;setTextColor(Color.GRAY);typeface=Typeface.MONOSPACE})
+        val footer=row();footer.background=GradientDrawable().apply {setColor(0x18FFFFFF);cornerRadius=dp(28).toFloat()}
+        listOf(Triple("▦","Biblioteca",{page="Canciones";render()}),Triple("☷","Ecualizador",{page="EQ";render()}),Triple("❝","Letras sincronizadas",{page="Letras";render()}),Triple("☰","Cola",{showQueue()})).forEach {(symbol,description,action)->
+            footer.addView(button(symbol,action).apply {contentDescription=description;textSize=24f;setTextColor(Color.LTGRAY);setBackgroundColor(Color.TRANSPARENT)},LinearLayout.LayoutParams(0,dp(48),1f))
+        };body.addView(footer,LinearLayout.LayoutParams(-1,dp(48)).apply {topMargin=dp(8);bottomMargin=dp(8)})
+        addButton("Editar información y carátula") {editMetadata(t)}
     }
+    private fun showQueue() {AlertDialog.Builder(this).setTitle("Cola").setItems((0 until controller!!.mediaItemCount).map {controller!!.getMediaItemAt(it).mediaMetadata.title.toString()}.toTypedArray()) {_,i->controller!!.seekToDefaultPosition(i);controller!!.play()}.show()}
     private fun format(ms:Long):String { val sec=maxOf(0,ms)/1000;return "%d:%02d".format(sec/60,sec%60) }
     private fun updateProgress() {
         val p=controller ?: return
         progress?.max=p.duration.coerceIn(1,Int.MAX_VALUE.toLong()).toInt();progress?.progress=p.currentPosition.toInt()
-        timeLabel?.text="${format(p.currentPosition)} / ${format(p.duration)}";playButton?.text=if(p.isPlaying)"❚❚" else "▶"
+        timeLabel?.text=format(p.currentPosition);endTimeLabel?.text=format(p.duration);playButton?.text=if(p.isPlaying)"❚❚" else "▶";playButton?.contentDescription=if(p.isPlaying)"Pausar" else "Reproducir"
         if(page=="Letras") {val t=lyricTrack();if(t!=null&&library.lyricFile(t).lastModified()!=lyricVersion){render();return}}
         if(page=="Letras"&&lyricLines.isNotEmpty()) {
             val index=lyricLines.indexOfLast { it.first<=p.currentPosition }
