@@ -18,6 +18,8 @@ class PlaybackService : MediaSessionService() {
     lateinit var library: Library
     lateinit var lastFM: LastFMClient
     private var startedAt=0L
+    private var lastTrack:Track?=null
+    private var logicalTrack:Track?=null
     private var session: MediaSession? = null
     val eq = RivoEqualizer()
     private val handler=Handler(Looper.getMainLooper())
@@ -25,7 +27,7 @@ class PlaybackService : MediaSessionService() {
     private val sample=object:Runnable { override fun run() {
         if(player.isPlaying) {
             val now=android.os.SystemClock.elapsedRealtime(); if(lastTick>0) listened+=now-lastTick;lastTick=now
-            val t=library.tracks.firstOrNull { it.id==player.currentMediaItem?.mediaId }
+            val t=logicalTrack
             if(t!=null&&!recorded&&t.duration>30000&&listened>=minOf(240000,t.duration/2)) { recorded=true;t.plays++;val timestamp=startedAt;library.worker.execute { library.save();lastFM.enqueue(t,timestamp) } }
         } else lastTick=0
         handler.postDelayed(this,10000)
@@ -39,7 +41,14 @@ class PlaybackService : MediaSessionService() {
         player.setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(),true)
         player.setHandleAudioBecomingNoisy(true)
         player.addListener(object:Player.Listener {
-            override fun onMediaItemTransition(item:MediaItem?,reason:Int) { listened=0;lastTick=0;recorded=false;startedAt=System.currentTimeMillis()/1000;library.tracks.firstOrNull { it.id==item?.mediaId }?.let { track->library.autoLyrics(track);library.worker.execute {lastFM.nowPlaying(track)} } }
+            override fun onMediaItemTransition(item:MediaItem?,reason:Int) {
+                val track=library.tracks.firstOrNull {it.id==item?.mediaId} ?: return
+                val previous=lastTrack
+                val same=previous!=null&&previous.video!=track.video&&normalized(previous.title)==normalized(track.title)&&normalized(previous.artist)==normalized(track.artist)
+                lastTrack=track
+                logicalTrack=if(track.video)library.tracks.firstOrNull {!it.video&&normalized(it.title)==normalized(track.title)&&normalized(it.artist)==normalized(track.artist)} ?: track else track
+                if(!same){listened=0;lastTick=0;recorded=false;startedAt=System.currentTimeMillis()/1000;logicalTrack?.let {t->library.autoLyrics(t);library.worker.execute {lastFM.nowPlaying(t)}}}
+            }
             override fun onIsPlayingChanged(isPlaying:Boolean) { handler.removeCallbacks(sample);lastTick=0;if(isPlaying) handler.post(sample) }
         })
         applySettings();session=MediaSession.Builder(this,player).build()

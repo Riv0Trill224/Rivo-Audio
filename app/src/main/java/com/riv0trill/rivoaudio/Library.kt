@@ -21,9 +21,9 @@ fun fetchText(url: String): String {
     return try { check(c.responseCode in 200..299) { "Servicio no disponible (${c.responseCode})" }; c.inputStream.bufferedReader().use { it.readText() } } finally { c.disconnect() }
 }
 
-data class Track(val id: String, val path: String, var title: String, var artist: String, var album: String, val duration: Long, val video: Boolean, var rating: Int = 0, var plays: Int = 0, var verified: Boolean = false) {
-    fun json() = JSONObject().put("id",id).put("path",path).put("title",title).put("artist",artist).put("album",album).put("duration",duration).put("video",video).put("rating",rating).put("plays",plays).put("verified",verified)
-    companion object { fun from(j: JSONObject) = Track(j.getString("id"),j.getString("path"),j.getString("title"),j.getString("artist"),j.getString("album"),j.optLong("duration"),j.optBoolean("video"),j.optInt("rating"),j.optInt("plays"),j.optBoolean("verified")) }
+data class Track(val id: String, val path: String, var title: String, var artist: String, var album: String, val duration: Long, val video: Boolean, var rating: Int = 0, var plays: Int = 0, var verified: Boolean = false, var folder: String = "", var chartNote: String = "") {
+    fun json() = JSONObject().put("id",id).put("path",path).put("title",title).put("artist",artist).put("album",album).put("duration",duration).put("video",video).put("rating",rating).put("plays",plays).put("verified",verified).put("folder",folder).put("chartNote",chartNote)
+    companion object { fun from(j: JSONObject) = Track(j.getString("id"),j.getString("path"),j.getString("title"),j.getString("artist"),j.getString("album"),j.optLong("duration"),j.optBoolean("video"),j.optInt("rating"),j.optInt("plays"),j.optBoolean("verified"),j.optString("folder"),j.optString("chartNote")) }
 }
 class Library(private val context: Context) {
     val root = File(context.filesDir,"Music").apply { mkdirs() }
@@ -35,10 +35,10 @@ class Library(private val context: Context) {
     var tracks = mutableListOf<Track>(); private set
     init { runCatching { val a=JSONArray(index.readText()); tracks=(0 until a.length()).map { Track.from(a.getJSONObject(it)) }.toMutableList() } }
     @Synchronized fun save() { val f=File(index.path+".tmp"); f.writeText(JSONArray(tracks.map { it.json() }).toString()); check(f.renameTo(index)) }
-    @Synchronized fun importFile(uri: Uri, name: String): Track? {
+    @Synchronized fun importFile(uri: Uri, name: String, refresh: Boolean = false): Track? {
         val ext=name.substringAfterLast('.',"").lowercase()
         if(ext !in listOf("mp3","m4a","aac","alac","wav","aif","aiff","caf","flac","mp4","m4v","mov","ogg","opus")) return null
-        val id=stableID(uri.toString()); tracks.firstOrNull { it.id==id }?.let { return it }
+        val id=stableID(uri.toString()); val existing=tracks.firstOrNull {it.id==id}; if(existing!=null&&!refresh)return existing
         val file=File(root,"$id.$ext")
         context.contentResolver.openInputStream(uri)?.use { input -> file.outputStream().use { input.copyTo(it) } } ?: error("No se puede leer $name")
         check(file.length()>0) { "Archivo vacío: $name" }
@@ -50,6 +50,7 @@ class Library(private val context: Context) {
             val parts=name.substringBeforeLast('.').split(" - ")
             Track(id,file.path,m.extractMetadata(7) ?: if(parts.size>1)parts.drop(1).joinToString(" - ") else name.substringBeforeLast('.'),m.extractMetadata(2) ?: if(parts.size>1)parts[0] else "Artista desconocido",m.extractMetadata(1) ?: "Sin álbum",m.extractMetadata(9)?.toLongOrNull() ?: 0,ext in listOf("mp4","m4v","mov"),verified=m.extractMetadata(7)!=null&&m.extractMetadata(2)!=null)
         } finally { m.release() }
+        if(existing!=null){track.title=existing.title;track.artist=existing.artist;track.album=existing.album;track.rating=existing.rating;track.plays=existing.plays;track.verified=existing.verified;track.folder=existing.folder;track.chartNote=existing.chartNote;tracks.remove(existing)}
         tracks.add(track); tracks.sortBy { it.title.lowercase() }; save(); return track
     }
     fun importFolder(uri: Uri) {
@@ -58,14 +59,20 @@ class Library(private val context: Context) {
             val children=dir.listFiles()
             children.filter { it.isDirectory }.forEach { visit(it) }
             children.filter { it.isFile }.forEach { f ->
-                val track=importFile(f.uri,f.name ?: "Audio")
-                if(track!=null) children.firstOrNull { it.name==f.name?.substringBeforeLast('.')+".lrc" }?.let { lrc ->
+                val track=importFile(f.uri,f.name ?: "Audio",true)
+                track?.folder=uri.toString()
+                if(track!=null&&!lyricFile(track).exists()&&!context.getSharedPreferences("rivo",0).getBoolean("deleted."+track.id,false)) children.firstOrNull { it.name==f.name?.substringBeforeLast('.')+".lrc" }?.let { lrc ->
                     context.contentResolver.openInputStream(lrc.uri)?.bufferedReader()?.use { saveLyrics(track,it.readText(),"Archivo local") }
                 }
             }
         }
-        visit(folder)
+        visit(folder);save()
+        val folders=folders();if((0 until folders.length()).none {folders.getJSONObject(it).optString("uri")==uri.toString()})folders.put(JSONObject().put("uri",uri.toString()).put("name",folder.name ?: "Carpeta"))
+        File(context.filesDir,"folders.json").writeText(folders.toString())
     }
+    fun folders()=runCatching {JSONArray(File(context.filesDir,"folders.json").readText())}.getOrDefault(JSONArray())
+    @Synchronized fun removeFolder(uri:String) {tracks.filter {it.folder==uri}.forEach {File(it.path).delete()};tracks.removeAll {it.folder==uri};save();val old=folders();val remaining=JSONArray();for(i in 0 until old.length())if(old.getJSONObject(i).optString("uri")!=uri)remaining.put(old.getJSONObject(i));File(context.filesDir,"folders.json").writeText(remaining.toString())}
+
     @Synchronized fun records(): JSONObject = runCatching { JSONObject(lyricIndex.readText()) }.getOrDefault(JSONObject())
     fun lyricFile(t: Track)=File(lyrics,t.id+".lrc")
     @Synchronized fun readLyrics(t: Track)=lyricFile(t).takeIf { it.exists() }?.readText() ?: ""

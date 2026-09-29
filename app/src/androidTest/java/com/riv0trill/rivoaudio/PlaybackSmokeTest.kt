@@ -15,9 +15,16 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class PlaybackSmokeTest {
+    @org.junit.Rule @JvmField val watcher=object:org.junit.rules.TestWatcher() {
+        override fun failed(error:Throwable,description:org.junit.runner.Description) {
+            val context=InstrumentationRegistry.getInstrumentation().targetContext
+            UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).takeScreenshot(File(context.getExternalFilesDir(null),"failure.png"))
+        }
+    }
     @Test fun localPlaybackLyricsAndSettings() {
         val instrumentation=InstrumentationRegistry.getInstrumentation()
         val context=instrumentation.targetContext
+        if(android.os.Build.VERSION.SDK_INT>=33) instrumentation.uiAutomation.grantRuntimePermission(context.packageName,android.Manifest.permission.POST_NOTIFICATIONS)
         context.getSharedPreferences("rivo",0).edit().putBoolean("lyrics.auto",false).commit()
         val wav=File(context.cacheDir,"Example - Neon Nights.wav")
         val count=44100*20;val data=ByteBuffer.allocate(44+count*2).order(ByteOrder.LITTLE_ENDIAN)

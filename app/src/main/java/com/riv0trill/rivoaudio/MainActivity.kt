@@ -34,6 +34,7 @@ class MainActivity : Activity() {
     private var lyricScroll:ScrollView?=null
     private var lyricLines=listOf<Pair<Long,String>>()
     private var lyricIndex=-1
+    private var lyricVersion=0L
     private var progress:SeekBar?=null
     private var timeLabel:TextView?=null
     private var playButton:Button?=null
@@ -165,6 +166,7 @@ class MainActivity : Activity() {
         val p=controller ?: return
         progress?.max=p.duration.coerceIn(1,Int.MAX_VALUE.toLong()).toInt();progress?.progress=p.currentPosition.toInt()
         timeLabel?.text="${format(p.currentPosition)} / ${format(p.duration)}";playButton?.text=if(p.isPlaying)"❚❚" else "▶"
+        if(page=="Letras") {val t=lyricTrack();if(t!=null&&library.lyricFile(t).lastModified()!=lyricVersion){render();return}}
         if(page=="Letras"&&lyricLines.isNotEmpty()) {
             val index=lyricLines.indexOfLast { it.first<=p.currentPosition }
             if(index!=lyricIndex) { lyricIndex=index;val text=android.text.SpannableString(lyricLines.joinToString("\n\n") { it.second });var offset=0
@@ -174,8 +176,10 @@ class MainActivity : Activity() {
             }
         }
     }
+    private fun lyricTrack():Track? { val t=current() ?: return null;return if(t.video)library.tracks.firstOrNull {!it.video&&normalized(it.title)==normalized(t.title)&&normalized(it.artist)==normalized(t.artist)} ?: t else t }
     private fun lyricsPage() {
-        val t=current() ?: return
+        val t=lyricTrack() ?: return
+        lyricVersion=library.lyricFile(t).lastModified()
         addButton("Editar / reemplazar / buscar letra") { editLyrics(t) }
         val text=library.readLyrics(t)
         val pattern=Regex("\\[(\\d{1,2}):(\\d{2})(?:\\.(\\d{1,3}))?\\]")
@@ -235,19 +239,20 @@ class MainActivity : Activity() {
         body.addView(label(fm.status));body.addView(label("${fm.queue().length()} escuchas pendientes. Las credenciales se guardan cifradas en este dispositivo.",13f))
     }
     private fun transferPage() {
+        val folders=library.folders();for(i in 0 until folders.length()) {val folder=folders.getJSONObject(i);body.addView(label(folder.getString("name"),18f));addButton("Volver a escanear") {async({library.importFolder(Uri.parse(folder.getString("uri")))})};addButton("Quitar carpeta de la biblioteca") {AlertDialog.Builder(this).setMessage("Se borran las copias de Rivo. La carpeta original se conserva.").setPositiveButton("Quitar") {_,_->async({library.removeFolder(folder.getString("uri"))})}.setNegativeButton("Cancelar",null).show()} }
         if(ftp==null)ftp=FTPServer(library)
         addButton(if(ftp!!.running) "Desactivar FTP" else "Activar FTP") {runCatching {if(ftp!!.running)ftp!!.stop() else ftp!!.start();render()}.onFailure {toast(it.message ?: "No se pudo iniciar FTP")} }
         if(ftp!!.running)body.addView(label("${ftp!!.address}:2121\nUsuario: rivo\nClave temporal: ${ftp!!.password}\nMantén Rivo Audio abierta. FTP es para tu red Wi-Fi local.",14f))
  addButton("Añadir carpeta desde Archivos") { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE),101) };addButton("Añadir canciones o videos") { pickFiles() };addButton("Administrar letras descargadas") {page="Administrar letras";render()};addButton("Ajustes visuales y de audio") {page="Ajustes";render()};body.addView(label("Los archivos se copian a la biblioteca de Rivo Audio. Las letras se guardan en Lyrics; puedes exportarlas desde su editor.")) }
     private fun pickOptions() { AlertDialog.Builder(this).setItems(arrayOf("Seleccionar carpeta","Seleccionar archivos")) { _,i->if(i==0)startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE),101) else pickFiles() }.show() }
     private fun pickFiles() { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { type="*/*";putExtra(Intent.EXTRA_MIME_TYPES,arrayOf("audio/*","video/*"));putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);addCategory(Intent.CATEGORY_OPENABLE) },100) }
-    private fun editMetadata(t:Track) { editTrack=t;val panel=column();val title=EditText(this).apply {setText(t.title)};val artist=EditText(this).apply {setText(t.artist)};val album=EditText(this).apply {setText(t.album)};panel.addView(title);panel.addView(artist);panel.addView(album);val rating=RatingBar(this).apply {numStars=5;stepSize=1f;rating=t.rating.toFloat()};panel.addView(rating);panel.addView(button("Cambiar carátula") {startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {type="image/*";addCategory(Intent.CATEGORY_OPENABLE)},104)});AlertDialog.Builder(this).setTitle("Editar biblioteca").setView(panel).setPositiveButton("Guardar") { _,_->t.title=title.text.toString();t.artist=artist.text.toString();t.album=album.text.toString();t.rating=rating.rating.toInt();t.verified=t.title.isNotBlank()&&t.artist.isNotBlank()&&t.artist!="Artista desconocido";library.save();render() }.setNegativeButton("Cancelar",null).show() }
+    private fun editMetadata(t:Track) { editTrack=t;val panel=column();val title=EditText(this).apply {setText(t.title)};val artist=EditText(this).apply {setText(t.artist)};val album=EditText(this).apply {setText(t.album)};panel.addView(title);panel.addView(artist);panel.addView(album);val chart=EditText(this).apply {hint="Dato de lista (manual)";setText(t.chartNote)};panel.addView(chart);val rating=RatingBar(this).apply {numStars=5;stepSize=1f;rating=t.rating.toFloat()};panel.addView(rating);panel.addView(button("Cambiar carátula") {startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {type="image/*";addCategory(Intent.CATEGORY_OPENABLE)},104)});AlertDialog.Builder(this).setTitle("Editar biblioteca").setView(panel).setPositiveButton("Guardar") { _,_->t.title=title.text.toString();t.artist=artist.text.toString();t.album=album.text.toString();t.chartNote=chart.text.toString();t.rating=rating.rating.toInt();t.verified=t.title.isNotBlank()&&t.artist.isNotBlank()&&t.artist!="Artista desconocido";library.save();render() }.setNegativeButton("Cancelar",null).show() }
     @Deprecated("Activity result compatibility") override fun onActivityResult(code:Int,result:Int,data:Intent?) {
         super.onActivityResult(code,result,data);if(result!=RESULT_OK||data==null)return
         val uri=data.data
         when(code) {
             100 -> { val uris=if(data.clipData!=null)(0 until data.clipData!!.itemCount).map {data.clipData!!.getItemAt(it).uri} else listOfNotNull(uri);toast("Importando…");async({uris.forEach {u->var name="Audio";contentResolver.query(u,null,null,null,null)?.use {if(it.moveToFirst())name=it.getString(it.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))};library.importFile(u,name)}}) }
-            101 ->if(uri!=null){toast("Importando carpeta…");async({library.importFolder(uri)})}
+            101 ->if(uri!=null){runCatching {contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION)};toast("Importando carpeta…");async({library.importFolder(uri)})}
             102 ->if(uri!=null) editTrack?.let {t->async({contentResolver.openInputStream(uri)?.bufferedReader()?.use {library.saveLyrics(t,it.readText(),"Archivo importado")}})}
             103 ->if(uri!=null) editTrack?.let {t->async({contentResolver.openOutputStream(uri)?.bufferedWriter()?.use {it.write(library.readLyrics(t))}}, {toast("LRC exportado")})}
             104 ->if(uri!=null) editTrack?.let {t->async({contentResolver.openInputStream(uri)?.use {input->File(library.covers,t.id+".jpg").outputStream().use {input.copyTo(it)}};thumbs.remove(t.id)})}

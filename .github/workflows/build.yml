@@ -62,8 +62,7 @@ jobs:
           profile: pixel_5
           disable-animations: true
           script: |
-            gradle :app:connectedDebugAndroidTest --stacktrace
-            adb pull /sdcard/Android/data/com.riv0trill.rivoaudio/files/ screenshots
+            bash .github/scripts/test-device.sh
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
@@ -72,3 +71,4 @@ jobs:
           path: |
             app/build/reports/androidTests
             screenshots
+            device-logcat.txt
