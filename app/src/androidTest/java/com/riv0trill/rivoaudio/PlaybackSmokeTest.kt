@@ -48,6 +48,7 @@ class PlaybackSmokeTest {
             Thread.sleep(1500)
             instrumentation.runOnMainSync {assertTrue(PlaybackService.instance!!.player.isPlaying);assertTrue(PlaybackService.instance!!.player.currentPosition>0)}
             assertTrue(device.findObject(UiSelector().textContains("44100 Hz")).waitForExists(5000))
+            val route=device.findObject(UiSelector().description("Dispositivo de salida"));assertTrue(route.exists());assertTrue("Output route stays visible",route.visibleBounds.height()>=24*context.resources.displayMetrics.density)
             val footer=device.findObject(UiSelector().description("Letras sincronizadas"))
             assertTrue(footer.exists());assertTrue("Footer must remain on screen",footer.visibleBounds.height()>=40*context.resources.displayMetrics.density)
             device.takeScreenshot(File(context.getExternalFilesDir(null),"player.png"))

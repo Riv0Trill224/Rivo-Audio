@@ -297,7 +297,7 @@ class MainActivity : Activity() {
             val buttons=row();buttons.addView(button("Pantalla completa"){setFullscreen(true)},LinearLayout.LayoutParams(0,dp(44),1f));buttons.addView(button(if(prefs.getBoolean("video.lyrics",true))"Ocultar letra" else "Mostrar letra"){prefs.edit().putBoolean("video.lyrics",!prefs.getBoolean("video.lyrics",true)).apply();render()},LinearLayout.LayoutParams(0,dp(44),1f));body.addView(buttons)
         }
         else {
-            val size=minOf(resources.displayMetrics.widthPixels-dp(80),(resources.displayMetrics.heightPixels*0.23).toInt(),dp(380))
+            val size=minOf(resources.displayMetrics.widthPixels-dp(80),(resources.displayMetrics.heightPixels*0.19).toInt(),dp(380))
             val frame=FrameLayout(this)
             frame.background=GradientDrawable(GradientDrawable.Orientation.TL_BR,intArrayOf(Color.rgb(133,34,158),ink,Color.rgb(76,82,160))).apply {cornerRadius=dp(32).toFloat()}
             frame.clipToOutline=true
@@ -352,7 +352,7 @@ class MainActivity : Activity() {
         playButton=transport("▶","Reproducir",true) {controller?.let {if(it.isPlaying)it.pause() else it.play()}};controls.addView(playButton)
         controls.addView(transport("▶|","Siguiente") {controller?.seekToNextMediaItem()});body.addView(controls)
         formatLabel=label("Preparando audio…",11f).apply {gravity=Gravity.CENTER;setTextColor(Color.GRAY);typeface=Typeface.MONOSPACE};body.addView(formatLabel)
-        outputLabel=label("",12f).apply {gravity=Gravity.CENTER};body.addView(outputLabel)
+        outputLabel=label("",12f).apply {gravity=Gravity.CENTER;contentDescription="Dispositivo de salida"};body.addView(outputLabel)
         val footer=row();footer.background=GradientDrawable().apply {setColor(0x18FFFFFF);cornerRadius=dp(28).toFloat()}
         listOf(Triple("▦","Biblioteca",{page="Canciones";render()}),Triple("☷","Ecualizador",{page="EQ";render()}),Triple("❝","Letras sincronizadas",{page="Letras";render()}),Triple("☰","Cola",{showQueue()})).forEach {(symbol,description,action)->
             footer.addView(button(symbol,action).apply {contentDescription=description;textSize=24f;setTextColor(Color.LTGRAY);setBackgroundColor(Color.TRANSPARENT)},LinearLayout.LayoutParams(0,dp(48),1f))
