@@ -33,7 +33,7 @@ class PlaybackSmokeTest {
         val peaks=WaveformReader.peaks(wav,context.cacheDir);assertEquals(56,peaks.size);assertTrue(peaks[5]<peaks[40]*0.4f);assertArrayEquals(peaks,WaveformReader.peaks(wav,context.cacheDir),0f)
         val mp3=File(context.cacheDir,"waveform.mp3")
         instrumentation.context.assets.open("waveform.mp3").use {input->mp3.outputStream().use {input.copyTo(it)}}
-        val compressed=WaveformReader.peaks(mp3,context.cacheDir);assertEquals("Compressed waveform",56,compressed.size);assertTrue(compressed[5]<compressed[40]*0.4f)
+        val compressed=WaveformReader.peaks(mp3,context.cacheDir);assertEquals("Compressed waveform",56,compressed.size);assertTrue("MP3 RMS: ${compressed.joinToString()}",compressed[5]<compressed[40]*0.4f)
         val library=Library(context);val song=library.importFile(Uri.fromFile(wav),wav.name)!!
         library.saveLyrics(song,"[00:00.00]Primera línea\n[00:02.00]Segunda línea","Prueba")
         val reloaded=Library(context);assertTrue(reloaded.readLyrics(reloaded.tracks.first()).contains("Primera"))

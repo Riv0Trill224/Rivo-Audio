@@ -18,7 +18,7 @@ import kotlin.math.sqrt
 object WaveformReader {
     private const val COUNT=56
     fun peaks(file:File,cacheDir:File):FloatArray {
-        val cache=File(cacheDir,"waveform-"+stableID("${file.path}:${file.length()}:${file.lastModified()}")+".txt")
+        val cache=File(cacheDir,"waveform-"+stableID("v2:${file.path}:${file.length()}:${file.lastModified()}")+".txt")
         runCatching {cache.readText().split(',').map {it.toFloat()}.toFloatArray()}.getOrNull()?.let { if(it.size==COUNT&&it.all {v->v.isFinite()&&v in 0f..1f})return it }
         val raw=runCatching {wav(file) ?: decoded(file)}.getOrElse {return floatArrayOf()}
         if(Thread.currentThread().isInterrupted||raw.size!=COUNT)return floatArrayOf()
@@ -64,7 +64,7 @@ object WaveformReader {
             var output=input;val info=MediaCodec.BufferInfo();val deadline=System.nanoTime()+15_000_000_000L
             return FloatArray(COUNT){i->
                 checkCancelled();check(System.nanoTime()<deadline)
-                val target=duration*i/COUNT;extractor.seekTo(target,MediaExtractor.SEEK_TO_PREVIOUS_SYNC);codec.flush()
+                val target=duration*i/COUNT;extractor.seekTo(maxOf(0L,target-250_000L),MediaExtractor.SEEK_TO_PREVIOUS_SYNC);codec.flush()
                 var ended=false;var rms:Float?=null;var attempts=0
                 while(rms==null&&attempts++<300){
                     checkCancelled();check(System.nanoTime()<deadline)
