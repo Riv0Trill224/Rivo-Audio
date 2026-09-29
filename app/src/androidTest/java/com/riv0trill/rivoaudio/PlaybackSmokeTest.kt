@@ -34,12 +34,14 @@ class PlaybackSmokeTest {
         val mp3=File(context.cacheDir,"waveform.mp3")
         instrumentation.context.assets.open("waveform.mp3").use {input->mp3.outputStream().use {input.copyTo(it)}}
         val compressed=WaveformReader.peaks(mp3,context.cacheDir);assertEquals("Compressed waveform",56,compressed.size);assertTrue("MP3 RMS: ${compressed.joinToString()}",compressed[5]<compressed[40]*0.4f)
-        val library=Library(context);val song=library.importFile(Uri.fromFile(wav),wav.name)!!
+        val library=PlaybackService.instance?.library ?: Library(context);val song=library.importFile(Uri.fromFile(wav),wav.name)!!
         library.saveLyrics(song,"[00:00.00]Primera línea\n[00:02.00]Segunda línea","Prueba")
-        val reloaded=Library(context);assertTrue(reloaded.readLyrics(reloaded.tracks.first()).contains("Primera"))
+        val reloaded=Library(context);assertTrue(reloaded.readLyrics(reloaded.tracks.first { it.id==song.id }).contains("Primera"))
         song.title="Neon Nights";library.save();assertTrue(library.readLyrics(song).contains("Segunda"))
         val device=UiDevice.getInstance(instrumentation)
         ActivityScenario.launch(MainActivity::class.java).use {
+            val search=device.findObject(UiSelector().className("android.widget.EditText"));assertTrue(search.waitForExists(20000));search.setText("Neon");device.pressBack()
+            androidx.test.uiautomator.UiScrollable(UiSelector().className("android.widget.ScrollView")).scrollIntoView(UiSelector().text("Neon Nights"))
             val row=device.findObject(UiSelector().text("Neon Nights"));assertTrue(row.waitForExists(20000));row.click()
             assertTrue(device.findObject(UiSelector().description("Anterior")).waitForExists(10000))
             assertTrue(device.findObject(UiSelector().description("Forma de onda, 56 muestras")).waitForExists(10000))
@@ -63,6 +65,6 @@ class PlaybackSmokeTest {
             instrumentation.runOnMainSync {assertTrue(PlaybackService.instance!!.player.isPlaying);PlaybackService.instance!!.player.pause()}
         }
         library.deleteLyrics(song);assertFalse(Library(context).lyricFile(song).exists())
-        library.worker.shutdown();reloaded.worker.shutdown()
+        reloaded.worker.shutdown()
     }
 }

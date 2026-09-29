@@ -10,4 +10,6 @@ done
 
 
 adb pull /sdcard/Download/rivo-video.png screenshots/rivo-video.png || true
+adb pull /sdcard/Download/rivo-video-failure.png screenshots/rivo-video-failure.png || true
+adb pull /sdcard/Download/rivo-video-failure.xml screenshots/rivo-video-failure.xml || true
 exit "$result"

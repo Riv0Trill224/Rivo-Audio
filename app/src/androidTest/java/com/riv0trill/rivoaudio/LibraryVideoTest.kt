@@ -18,6 +18,14 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class LibraryVideoTest {
+    @org.junit.Rule @JvmField val watcher=object:org.junit.rules.TestWatcher() {
+        override fun failed(error:Throwable,description:org.junit.runner.Description) {
+            val d=UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+            d.takeScreenshot(File("/sdcard/Download/rivo-video-failure.png"))
+            d.dumpWindowHierarchy(File("/sdcard/Download/rivo-video-failure.xml"))
+            d.wakeUp();d.setOrientationNatural();d.unfreezeRotation()
+        }
+    }
     @Test fun playlistsScanCreditsAndVideoQueue() {
         val instrumentation=InstrumentationRegistry.getInstrumentation();val context=instrumentation.targetContext
         if(android.os.Build.VERSION.SDK_INT>=33)instrumentation.uiAutomation.grantRuntimePermission(context.packageName,android.Manifest.permission.POST_NOTIFICATIONS)
@@ -40,11 +48,13 @@ class LibraryVideoTest {
             Thread.sleep(600)
             val mini=device.findObject(UiSelector().textContains("Abrir reproductor"));if(mini.exists())mini.click()else device.findObject(UiSelector().text("Selecciona una canción")).click()
             assertTrue(device.findObject(UiSelector().text("Cambiar a Video")).waitForExists(5000));device.findObject(UiSelector().text("Cambiar a Video")).click()
+            instrumentation.runOnMainSync {val p=PlaybackService.instance!!.player;assertEquals(video.id,p.currentMediaItem!!.mediaId);p.pause()}
             assertTrue(device.findObject(UiSelector().text("Pantalla completa")).waitForExists(5000));device.findObject(UiSelector().text("Pantalla completa")).click()
+            assertTrue("Fullscreen opens before rotation",device.findObject(UiSelector().text("Cerrar pantalla completa")).waitForExists(5000))
             device.setOrientationLeft();Thread.sleep(500)
             assertTrue(device.findObject(UiSelector().text("Cerrar pantalla completa")).waitForExists(5000))
             device.findObject(UiSelector().text("Ocultar letra")).click();assertTrue(device.findObject(UiSelector().text("Mostrar letra")).waitForExists(3000));device.findObject(UiSelector().text("Mostrar letra")).click()
-            var position=0L;instrumentation.runOnMainSync {val p=PlaybackService.instance!!.player;assertEquals(2,p.mediaItemCount);assertEquals(video.id,p.currentMediaItem!!.mediaId);position=p.currentPosition}
+            var position=0L;instrumentation.runOnMainSync {val p=PlaybackService.instance!!.player;assertEquals(2,p.mediaItemCount);assertEquals(video.id,p.currentMediaItem!!.mediaId);p.play();position=p.currentPosition}
             device.sleep();Thread.sleep(1600)
             instrumentation.runOnMainSync {val p=PlaybackService.instance!!.player;assertTrue("Background video audio",p.isPlaying);assertTrue(p.currentPosition>position+500)}
             device.wakeUp();device.executeShellCommand("wm dismiss-keyguard");device.setOrientationNatural();Thread.sleep(400)

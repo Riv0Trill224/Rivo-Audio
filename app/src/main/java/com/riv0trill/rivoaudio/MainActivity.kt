@@ -115,7 +115,7 @@ class MainActivity : Activity() {
         videoTimed=text.lines().flatMap {line->val matches=pattern.findAll(line).toList();val words=matches.lastOrNull()?.let {line.substring(it.range.last+1).trim()} ?: "";matches.map {m->(m.groupValues[1].toLong()*60000+m.groupValues[2].toLong()*1000+(m.groupValues[3].padEnd(3,'0').take(3).toLongOrNull() ?: 0)) to words}}.sortedBy {it.first};videoPlain=if(videoTimed.isEmpty())text else ""
         return frame
     }
-    private fun setFullscreen(value:Boolean){videoFullscreen=value;requestedOrientation=if(value)android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+    private fun setFullscreen(value:Boolean){videoFullscreen=value;requestedOrientation=if(value)android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_USER else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         if(Build.VERSION.SDK_INT>=30){if(value)window.insetsController?.hide(WindowInsets.Type.systemBars()) else window.insetsController?.show(WindowInsets.Type.systemBars())}
         render()
     }
