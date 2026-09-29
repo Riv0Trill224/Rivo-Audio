@@ -28,10 +28,10 @@ class LastFMClient(private val context:Context) {
     @Synchronized fun configure(api:String,secret:String) {require(api.matches(Regex("[a-fA-F0-9]{32}"))&&secret.matches(Regex("[a-fA-F0-9]{32}"))) {"API key y secret deben tener 32 caracteres hexadecimales"};credentials=JSONObject().put("key",api).put("secret",secret);persist()}
     @Synchronized fun authorizeURL():String {val token=call("auth.getToken",emptyMap()).getString("token");credentials.put("token",token);persist();return "https://www.last.fm/api/auth/?api_key=${credentials.getString("key")}&token=$token"}
     @Synchronized fun finish() {val session=call("auth.getSession",mapOf("token" to credentials.getString("token"))).getJSONObject("session");credentials.put("session",session.getString("key")).put("user",session.getString("name"));persist();status="Conectado: $user"}
-    @Synchronized fun nowPlaying(t:Track) {if(user.isBlank()||!enabled())return;runCatching {call("track.updateNowPlaying",fields(t))}.onFailure {status=it.message ?: "Sin conexión"}}
+    @Synchronized fun nowPlaying(t:Track) {if(user.isBlank()||!enabled()||!t.verified)return;runCatching {call("track.updateNowPlaying",fields(t))}.onFailure {status=it.message ?: "Sin conexión"}}
     private fun enabled()=context.getSharedPreferences("rivo",0).getBoolean("lastfm.enabled",false)
     private fun fields(t:Track)=mapOf("artist" to t.artist,"track" to t.title,"album" to t.album,"duration" to (t.duration/1000).toString())
-    @Synchronized fun enqueue(t:Track,started:Long) {if(user.isBlank()||!enabled())return;val a=queue();a.put(JSONObject(fields(t)).put("timestamp",started.toString()).put("account",user));queueFile.writeText(a.toString());flush()}
+    @Synchronized fun enqueue(t:Track,started:Long) {if(user.isBlank()||!enabled()||!t.verified)return;val a=queue();a.put(JSONObject(fields(t)).put("timestamp",started.toString()).put("account",user));queueFile.writeText(a.toString());flush()}
     fun queue():JSONArray=runCatching {JSONArray(queueFile.readText())}.getOrDefault(JSONArray())
     @Synchronized fun flush() {
         if(user.isBlank()||!enabled())return

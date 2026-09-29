@@ -21,14 +21,14 @@ fun fetchText(url: String): String {
     return try { check(c.responseCode in 200..299) { "Servicio no disponible (${c.responseCode})" }; c.inputStream.bufferedReader().use { it.readText() } } finally { c.disconnect() }
 }
 
-data class Track(val id: String, val path: String, var title: String, var artist: String, var album: String, val duration: Long, val video: Boolean, var rating: Int = 0, var plays: Int = 0) {
-    fun json() = JSONObject().put("id",id).put("path",path).put("title",title).put("artist",artist).put("album",album).put("duration",duration).put("video",video).put("rating",rating).put("plays",plays)
-    companion object { fun from(j: JSONObject) = Track(j.getString("id"),j.getString("path"),j.getString("title"),j.getString("artist"),j.getString("album"),j.optLong("duration"),j.optBoolean("video"),j.optInt("rating"),j.optInt("plays")) }
+data class Track(val id: String, val path: String, var title: String, var artist: String, var album: String, val duration: Long, val video: Boolean, var rating: Int = 0, var plays: Int = 0, var verified: Boolean = false) {
+    fun json() = JSONObject().put("id",id).put("path",path).put("title",title).put("artist",artist).put("album",album).put("duration",duration).put("video",video).put("rating",rating).put("plays",plays).put("verified",verified)
+    companion object { fun from(j: JSONObject) = Track(j.getString("id"),j.getString("path"),j.getString("title"),j.getString("artist"),j.getString("album"),j.optLong("duration"),j.optBoolean("video"),j.optInt("rating"),j.optInt("plays"),j.optBoolean("verified")) }
 }
 class Library(private val context: Context) {
     val root = File(context.filesDir,"Music").apply { mkdirs() }
     val lyrics = File(context.filesDir,"Lyrics").apply { mkdirs() }
-    val covers = File(context.cacheDir,"Artwork").apply { mkdirs() }
+    val covers = File(context.filesDir,"Artwork").apply { mkdirs() }
     private val index = File(context.filesDir,"library.json")
     private val lyricIndex = File(lyrics,"index.json")
     val worker = Executors.newSingleThreadExecutor()
@@ -47,7 +47,8 @@ class Library(private val context: Context) {
             m.setDataSource(file.path)
             val cover=m.embeddedPicture
             if(cover!=null) File(covers,"$id.jpg").writeBytes(cover)
-            Track(id,file.path,m.extractMetadata(7) ?: name.substringBeforeLast('.'),m.extractMetadata(2) ?: "Artista desconocido",m.extractMetadata(1) ?: "Sin álbum",m.extractMetadata(9)?.toLongOrNull() ?: 0,ext in listOf("mp4","m4v","mov"))
+            val parts=name.substringBeforeLast('.').split(" - ")
+            Track(id,file.path,m.extractMetadata(7) ?: if(parts.size>1)parts.drop(1).joinToString(" - ") else name.substringBeforeLast('.'),m.extractMetadata(2) ?: if(parts.size>1)parts[0] else "Artista desconocido",m.extractMetadata(1) ?: "Sin álbum",m.extractMetadata(9)?.toLongOrNull() ?: 0,ext in listOf("mp4","m4v","mov"),verified=m.extractMetadata(7)!=null&&m.extractMetadata(2)!=null)
         } finally { m.release() }
         tracks.add(track); tracks.sortBy { it.title.lowercase() }; save(); return track
     }
@@ -80,8 +81,8 @@ class Library(private val context: Context) {
     }
     fun autoLyrics(t: Track) {
         val p=context.getSharedPreferences("rivo",0)
-        if(!p.getBoolean("lyrics.auto",true)||p.getBoolean("deleted."+t.id,false)||readLyrics(t).isNotBlank()||System.currentTimeMillis()-p.getLong("attempt."+t.id,0)<86400000) return
+        if(!p.getBoolean("lyrics.auto",true)||p.getBoolean("deleted."+t.id,false)||lyricFile(t).exists()||normalized(t.title).isEmpty()||normalized(t.artist).isEmpty()||t.artist=="Artista desconocido"||System.currentTimeMillis()-p.getLong("attempt."+t.id,0)<86400000) return
         p.edit().putLong("attempt."+t.id,System.currentTimeMillis()).apply()
-        worker.execute { runCatching { val a=lookup(t).filter { normalized(it.optString("trackName"))==normalized(t.title)&&normalized(it.optString("artistName"))==normalized(t.artist) }; if(a.size==1 && readLyrics(t).isEmpty() && !p.getBoolean("deleted."+t.id,false)) saveLyrics(t,a[0].getString("syncedLyrics"),"LRCLIB · automática") } }
+        worker.execute { runCatching { val a=lookup(t).filter { normalized(it.optString("trackName"))==normalized(t.title)&&normalized(it.optString("artistName"))==normalized(t.artist) }; synchronized(this) {if(a.size==1 && !lyricFile(t).exists() && !p.getBoolean("deleted."+t.id,false)) saveLyrics(t,a[0].getString("syncedLyrics"),"LRCLIB · automática")} } }
     }
 }

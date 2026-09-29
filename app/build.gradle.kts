@@ -9,6 +9,7 @@ android {
     defaultConfig {
         applicationId = "com.riv0trill.rivoaudio"
 
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         minSdk = 26
         targetSdk = 36
 
@@ -23,6 +24,10 @@ android {
 }
 
 dependencies {
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:core:1.6.1")
+    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
     implementation("androidx.documentfile:documentfile:1.1.0")
     implementation("androidx.media3:media3-ui:1.11.1")
     val media3Version = "1.11.1"
