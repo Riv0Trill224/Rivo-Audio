@@ -177,7 +177,7 @@ class MainActivity : Activity() {
         val t=current() ?: run { body.addView(label("Selecciona una canción"));return }
         if(t.video) {videoSurface=PlayerView(this).apply {player=controller;useController=true};body.addView(videoSurface,LinearLayout.LayoutParams(-1,dp(220)))}
         else {
-            val size=minOf(resources.displayMetrics.widthPixels-dp(80),(resources.displayMetrics.heightPixels*0.29).toInt(),dp(380))
+            val size=minOf(resources.displayMetrics.widthPixels-dp(80),(resources.displayMetrics.heightPixels*0.25).toInt(),dp(380))
             val frame=FrameLayout(this)
             frame.background=GradientDrawable(GradientDrawable.Orientation.TL_BR,intArrayOf(Color.rgb(133,34,158),ink,Color.rgb(76,82,160))).apply {cornerRadius=dp(32).toFloat()}
             frame.clipToOutline=true
@@ -235,7 +235,7 @@ class MainActivity : Activity() {
         val footer=row();footer.background=GradientDrawable().apply {setColor(0x18FFFFFF);cornerRadius=dp(28).toFloat()}
         listOf(Triple("▦","Biblioteca",{page="Canciones";render()}),Triple("☷","Ecualizador",{page="EQ";render()}),Triple("❝","Letras sincronizadas",{page="Letras";render()}),Triple("☰","Cola",{showQueue()})).forEach {(symbol,description,action)->
             footer.addView(button(symbol,action).apply {contentDescription=description;textSize=24f;setTextColor(Color.LTGRAY);setBackgroundColor(Color.TRANSPARENT)},LinearLayout.LayoutParams(0,dp(48),1f))
-        };body.addView(footer,LinearLayout.LayoutParams(-1,dp(48)).apply {topMargin=dp(8);bottomMargin=dp(8)})
+        };root.addView(footer,LinearLayout.LayoutParams(-1,dp(48)).apply {setMargins(dp(12),dp(8),dp(12),dp(8))})
 
     }
     private fun playerOptions(){AlertDialog.Builder(this).setItems(arrayOf("Ajustes visuales y de audio","Editar información y carátula","Letras sincronizadas","Ver cola")){_,i->when(i){0->{page="Ajustes";render()};1->current()?.let {editMetadata(it)};2->{page="Letras";render()};3->showQueue()}}.show()}
