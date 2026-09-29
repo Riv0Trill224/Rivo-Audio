@@ -14,6 +14,7 @@
     <application
         android:allowBackup="true"
         android:label="@string/app_name"
+        android:icon="@drawable/rivo_icon"
         android:supportsRtl="true"
         android:theme="@style/Theme.RivoAudio">
 

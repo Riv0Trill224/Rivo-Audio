@@ -42,6 +42,12 @@ class MainActivity : Activity() {
     private var playButton:Button?=null
     private var endTimeLabel:TextView?=null
     private var mini:Button?=null
+    private var waveform:PlaybackWaveform?=null
+    private var formatLabel:TextView?=null
+    private var previewLabel:TextView?=null
+    private val waveWorker=java.util.concurrent.ThreadPoolExecutor(1,1,0L,java.util.concurrent.TimeUnit.MILLISECONDS,java.util.concurrent.LinkedBlockingQueue<Runnable>())
+    private var waveTask:java.util.concurrent.Future<*>?=null
+    private var waveGeneration=0
     private val accent=Color.rgb(212,173,255)
     private val ink=Color.rgb(9,12,20)
     private val surface=Color.rgb(26,27,41)
@@ -49,7 +55,7 @@ class MainActivity : Activity() {
     private fun current()=controller?.currentMediaItem?.mediaId?.let { id -> library.tracks.firstOrNull { it.id==id } }
     private fun dp(n:Int)=(n*resources.displayMetrics.density).toInt()
     private fun label(text:String,size:Float=16f)=TextView(this).apply { this.text=text;textSize=size;setTextColor(Color.WHITE);setPadding(dp(8),dp(6),dp(8),dp(6)) }
-    private fun button(text:String,action:()->Unit)=Button(this).apply { this.text=text;isAllCaps=false;setTextColor(accent);background=GradientDrawable().apply {setColor(surface);cornerRadius=dp(18).toFloat()};setPadding(dp(12),dp(8),dp(12),dp(8));setOnClickListener { action() } }
+    private fun button(text:String,action:()->Unit)=RivoButton(this).apply { this.text=text;isAllCaps=false;setTextColor(accent);background=GradientDrawable().apply {setColor(surface);cornerRadius=dp(18).toFloat()};setPadding(dp(12),dp(8),dp(12),dp(8));setOnClickListener { action() } }
     private fun column()=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;clipToPadding=false }
     private fun row()=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL }
     private fun addButton(text:String,action:()->Unit) { body.addView(button(text,action),LinearLayout.LayoutParams(-1,-2).apply {setMargins(0,dp(4),0,dp(4))}) }
@@ -68,24 +74,26 @@ class MainActivity : Activity() {
             override fun onPlayerError(error:PlaybackException) { toast("No se pudo reproducir: ${error.message}") }
         });render() }.onFailure { toast(it.message ?: "No se pudo iniciar el audio") } },Executor { runOnUiThread(it) })
     }
-    override fun onStart() { super.onStart();handler.post(updater) }
-    override fun onStop() { handler.removeCallbacks(updater);super.onStop() }
-    override fun onDestroy() { ftp?.stop();future?.let { MediaController.releaseFuture(it) };super.onDestroy() }
+    override fun onStart() { super.onStart();handler.post(updater);if(page=="Reproductor"&&waveform?.peaks?.isEmpty()==true)current()?.let {loadWaveform(it)} }
+    override fun onStop() { handler.removeCallbacks(updater);waveTask?.cancel(true);waveGeneration++;super.onStop() }
+    override fun onDestroy() { waveWorker.shutdownNow();ftp?.stop();future?.let { MediaController.releaseFuture(it) };super.onDestroy() }
     override fun onBackPressed() { if(page!="Canciones") { page="Canciones";selectedArtist=null;render() } else super.onBackPressed() }
     private fun render() {
         if(controller==null||PlaybackService.instance==null)return
         videoSurface?.player=null;videoSurface=null
+        waveTask?.cancel(true);waveWorker.queue.clear();waveGeneration++;waveform=null;formatLabel=null;previewLabel=null
         applyBackdrop()
         root.removeAllViews();progress=null;timeLabel=null;endTimeLabel=null;playButton=null;lyricView=null;lyricScroll=null;lyricIndex=-1
         val heading=row()
         heading.setPadding(dp(8),dp(8),dp(8),dp(16))
         val back=button(if(page=="Reproductor")"⌄" else "‹") {page="Canciones";selectedArtist=null;render()}
+        back.background=GradientDrawable().apply {shape=GradientDrawable.OVAL;setColor(0x18FFFFFF)}
         heading.addView(back,LinearLayout.LayoutParams(dp(42),dp(42)))
         val title=column();title.gravity=Gravity.CENTER
         title.addView(label(if(page=="Reproductor")"R I V Ø   A U D I O" else page,if(page=="Reproductor")13f else 22f).apply {gravity=Gravity.CENTER;setTypeface(null,Typeface.BOLD)})
         if(page=="Reproductor")title.addView(label("T U  B I B L I O T E C A",9f).apply {setTextColor(Color.GRAY);gravity=Gravity.CENTER;setPadding(0,0,0,0)})
         heading.addView(title,LinearLayout.LayoutParams(0,-2,1f))
-        heading.addView(button("⋯") {page="Ajustes";render()},LinearLayout.LayoutParams(dp(42),dp(42)));root.addView(heading)
+        heading.addView(button("⋯") {if(page=="Reproductor")playerOptions() else {page="Ajustes";render()}}.apply {background=GradientDrawable().apply {shape=GradientDrawable.OVAL;setColor(0x18FFFFFF)}},LinearLayout.LayoutParams(dp(42),dp(42)));root.addView(heading)
         body=column();body.setPadding(dp(12),0,dp(12),0);val scroll=ScrollView(this);scroll.addView(body);root.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
         when(page) {
             "Canciones" -> libraryPage()
@@ -169,7 +177,7 @@ class MainActivity : Activity() {
         val t=current() ?: run { body.addView(label("Selecciona una canción"));return }
         if(t.video) {videoSurface=PlayerView(this).apply {player=controller;useController=true};body.addView(videoSurface,LinearLayout.LayoutParams(-1,dp(220)))}
         else {
-            val size=minOf(resources.displayMetrics.widthPixels-dp(80),(resources.displayMetrics.heightPixels*0.31).toInt(),dp(380))
+            val size=minOf(resources.displayMetrics.widthPixels-dp(80),(resources.displayMetrics.heightPixels*0.29).toInt(),dp(380))
             val frame=FrameLayout(this)
             frame.background=GradientDrawable(GradientDrawable.Orientation.TL_BR,intArrayOf(Color.rgb(133,34,158),ink,Color.rgb(76,82,160))).apply {cornerRadius=dp(32).toFloat()}
             frame.clipToOutline=true
@@ -204,6 +212,11 @@ class MainActivity : Activity() {
         options.addView(View(this),LinearLayout.LayoutParams(0,1,1f))
         options.addView(button("↻¹") {controller!!.repeatMode=if(controller!!.repeatMode==Player.REPEAT_MODE_ONE)Player.REPEAT_MODE_ALL else Player.REPEAT_MODE_ONE;render()}.apply {contentDescription="Repetir canción";setTextColor(if(controller!!.repeatMode==Player.REPEAT_MODE_ONE)accent else Color.GRAY);setBackgroundColor(Color.TRANSPARENT)},LinearLayout.LayoutParams(dp(48),dp(44)))
         options.addView(button("⤨") {controller!!.shuffleModeEnabled=!controller!!.shuffleModeEnabled;render()}.apply {contentDescription="Aleatorio";setTextColor(if(controller!!.shuffleModeEnabled)accent else Color.GRAY);setBackgroundColor(Color.TRANSPARENT)},LinearLayout.LayoutParams(dp(48),dp(44)));body.addView(options)
+        if(!t.video){
+            waveform=PlaybackWaveform(this).apply {importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_YES;contentDescription="Forma de onda cargando"}
+            body.addView(waveform,LinearLayout.LayoutParams(-1,dp(46)).apply {topMargin=dp(12)})
+            loadWaveform(t)
+        }
         progress=SeekBar(this).apply {max=1000;thumbTintList=android.content.res.ColorStateList.valueOf(Color.WHITE);progressTintList=android.content.res.ColorStateList.valueOf(accent);contentDescription="Posición de reproducción";setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(s:SeekBar?,p:Int,user:Boolean){if(user)controller?.seekTo(p.toLong())}
             override fun onStartTrackingTouch(s:SeekBar?){};override fun onStopTrackingTouch(s:SeekBar?){}
@@ -218,18 +231,30 @@ class MainActivity : Activity() {
         controls.addView(transport("|◀","Anterior") {if(controller!!.currentPosition>3000)controller!!.seekTo(0) else controller!!.seekToPreviousMediaItem()})
         playButton=transport("▶","Reproducir",true) {controller?.let {if(it.isPlaying)it.pause() else it.play()}};controls.addView(playButton)
         controls.addView(transport("▶|","Siguiente") {controller?.seekToNextMediaItem()});body.addView(controls)
-        val audio=PlaybackService.instance?.player?.audioFormat
-        body.addView(label("${File(t.path).extension.uppercase()}  ·  ${audio?.sampleRate ?: 0} Hz  ·  ${audio?.channelCount ?: 0} canales",11f).apply {gravity=Gravity.CENTER;setTextColor(Color.GRAY);typeface=Typeface.MONOSPACE})
+        formatLabel=label("Preparando audio…",11f).apply {gravity=Gravity.CENTER;setTextColor(Color.GRAY);typeface=Typeface.MONOSPACE};body.addView(formatLabel)
         val footer=row();footer.background=GradientDrawable().apply {setColor(0x18FFFFFF);cornerRadius=dp(28).toFloat()}
         listOf(Triple("▦","Biblioteca",{page="Canciones";render()}),Triple("☷","Ecualizador",{page="EQ";render()}),Triple("❝","Letras sincronizadas",{page="Letras";render()}),Triple("☰","Cola",{showQueue()})).forEach {(symbol,description,action)->
             footer.addView(button(symbol,action).apply {contentDescription=description;textSize=24f;setTextColor(Color.LTGRAY);setBackgroundColor(Color.TRANSPARENT)},LinearLayout.LayoutParams(0,dp(48),1f))
         };body.addView(footer,LinearLayout.LayoutParams(-1,dp(48)).apply {topMargin=dp(8);bottomMargin=dp(8)})
-        addButton("Editar información y carátula") {editMetadata(t)}
+
+    }
+    private fun playerOptions(){AlertDialog.Builder(this).setItems(arrayOf("Ajustes visuales y de audio","Editar información y carátula","Letras sincronizadas","Ver cola")){_,i->when(i){0->{page="Ajustes";render()};1->current()?.let {editMetadata(it)};2->{page="Letras";render()};3->showQueue()}}.show()}
+    private fun loadWaveform(t:Track){
+        if(t.video)return
+        val target=waveform ?: return
+        waveTask?.cancel(true);waveWorker.queue.clear();val generation=++waveGeneration
+        waveTask=waveWorker.submit {
+            val peaks=WaveformReader.peaks(File(t.path),cacheDir)
+            runOnUiThread {if(!isFinishing&&generation==waveGeneration&&waveform===target){target.peaks=peaks;if(peaks.isEmpty())target.visibility=View.GONE}}
+        }
     }
     private fun showQueue() {AlertDialog.Builder(this).setTitle("Cola").setItems((0 until controller!!.mediaItemCount).map {controller!!.getMediaItemAt(it).mediaMetadata.title.toString()}.toTypedArray()) {_,i->controller!!.seekToDefaultPosition(i);controller!!.play()}.show()}
     private fun format(ms:Long):String { val sec=maxOf(0,ms)/1000;return "%d:%02d".format(sec/60,sec%60) }
     private fun updateProgress() {
         val p=controller ?: return
+        waveform?.position=if(p.duration>0)p.currentPosition.toFloat()/p.duration else 0f
+        val source=PlaybackService.instance?.player?.audioFormat
+        formatLabel?.text=if(source!=null&&source.sampleRate>0&&source.channelCount>0) "${current()?.let {File(it.path).extension.uppercase()} ?: "AUDIO"} · ${source.sampleRate} Hz · ${source.channelCount} canales" else "Preparando audio…"
         progress?.max=p.duration.coerceIn(1,Int.MAX_VALUE.toLong()).toInt();progress?.progress=p.currentPosition.toInt()
         timeLabel?.text=format(p.currentPosition);endTimeLabel?.text=format(p.duration);playButton?.text=if(p.isPlaying)"❚❚" else "▶";playButton?.contentDescription=if(p.isPlaying)"Pausar" else "Reproducir"
         if(page=="Letras") {val t=lyricTrack();if(t!=null&&library.lyricFile(t).lastModified()!=lyricVersion){render();return}}
@@ -237,6 +262,8 @@ class MainActivity : Activity() {
             val index=lyricLines.indexOfLast { it.first<=p.currentPosition }
             if(index!=lyricIndex) { lyricIndex=index;val text=android.text.SpannableString(lyricLines.joinToString("\n\n") { it.second });var offset=0
                 lyricLines.forEachIndexed { i,line ->text.setSpan(android.text.style.ForegroundColorSpan(if(i==index)Color.WHITE else Color.GRAY),offset,offset+line.second.length,0);offset+=line.second.length+2 }
+                text.let {spans->var start=0;lyricLines.forEach {line->val at=start;spans.setSpan(object:android.text.style.ClickableSpan(){override fun onClick(view:View){controller?.seekTo(line.first)};override fun updateDrawState(ds:android.text.TextPaint){ds.isUnderlineText=false}},at,at+line.second.length,0);start+=line.second.length+2} }
+                lyricView?.movementMethod=android.text.method.LinkMovementMethod.getInstance()
                 lyricView?.text=text
                 lyricView?.post { lyricView?.layout?.let { layout -> val at=lyricLines.take(maxOf(0,index)).sumOf { it.second.length+2 };val y=layout.getLineTop(layout.getLineForOffset(at.coerceAtMost(text.length)));if(prefs.getBoolean("visual.motion",true))lyricScroll?.smoothScrollTo(0,maxOf(0,y-dp(90))) else lyricScroll?.scrollTo(0,maxOf(0,y-dp(90))) } }
             }
@@ -267,10 +294,11 @@ class MainActivity : Activity() {
     private fun toggle(text:String,key:String,default:Boolean) { body.addView(Switch(this).apply { this.text=text;setTextColor(Color.WHITE);isChecked=prefs.getBoolean(key,default);setOnCheckedChangeListener { _,v->prefs.edit().putBoolean(key,v).apply();PlaybackService.instance?.applySettings() } }) }
     private fun slider(title:String,key:String,min:Float,max:Float,default:Float) {
         val text=label("$title: ${prefs.getFloat(key,default)}");body.addView(text)
-        body.addView(SeekBar(this).apply { this.max=100;progress=((prefs.getFloat(key,default)-min)/(max-min)*100).toInt();setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener { override fun onProgressChanged(s:SeekBar?,p:Int,user:Boolean){ if(user){val v=min+(max-min)*p/100;prefs.edit().putFloat(key,v).apply();text.text="$title: %.2f".format(v);PlaybackService.instance?.applySettings()} };override fun onStartTrackingTouch(s:SeekBar?){};override fun onStopTrackingTouch(s:SeekBar?){} }) })
+        body.addView(SeekBar(this).apply { this.max=100;progress=((prefs.getFloat(key,default)-min)/(max-min)*100).toInt();setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener { override fun onProgressChanged(s:SeekBar?,p:Int,user:Boolean){ if(user){val v=min+(max-min)*p/100;prefs.edit().putFloat(key,v).apply();text.text="$title: %.2f".format(v);PlaybackService.instance?.applySettings();if(key=="visual.lyricSize")previewLabel?.textSize=v} };override fun onStartTrackingTouch(s:SeekBar?){};override fun onStopTrackingTouch(s:SeekBar?){} }) })
     }
     private fun settingsPage() {
         body.addView(label("Opciones visuales",22f));toggle("Fondo de carátula","visual.artwork",true);toggle("Animar letras","visual.motion",true);slider("Tamaño de letra","visual.lyricSize",20f,40f,30f)
+        previewLabel=label("RIVØ Audio · Vista previa",prefs.getFloat("visual.lyricSize",30f));body.addView(previewLabel)
         body.addView(label("Letras",22f));toggle("Buscar letras automáticamente","lyrics.auto",true);addButton("Administrar letras descargadas") { page="Administrar letras";render() }
         body.addView(label("Motor de audio",22f));toggle("Ecualizador activo","eq.enabled",true);slider("Velocidad","audio.rate",0.5f,2f,1f);slider("Preamplificación dB","audio.preamp",-12f,0f,0f);addButton("Ecualizador y presets") {page="EQ";render()}
         val am=getSystemService(AUDIO_SERVICE) as android.media.AudioManager

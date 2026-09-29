@@ -10,7 +10,8 @@ Ajustes comunes: fondo de carátula, animación de letras, tamaño de texto entr
 
 - La interfaz Android usa controles nativos; comparte estructura y colores, pero no es una réplica píxel por píxel de SwiftUI.
 - Android aplica EQ mediante un procesador PCM de Media3. iOS utiliza AVAudioUnitEQ y AVAudioUnitTimePitch; las respuestas y consumo deben compararse en equipos reales.
-- La forma de onda muestreada del reproductor iOS aún no está en Android.
+- Android 0.2.1 incorpora la forma de onda real de 56 muestras RMS con caché e interrupción al salir; lector PCM WAV y decodificación de ventanas para formatos comprimidos.
+- Se unifican controles vectoriales, menú de canción, disposición de reproducción, vista previa de tamaño de letras y navegación por líneas sincronizadas.
 - Android ofrece las salidas detectadas por el sistema; no implementa un controlador USB exclusivo ni garantiza bit perfect.
 - Android enlaza audio/video por título y artista normalizados exactos y solicita selección si hay varias versiones. iOS además usa duración y coincidencias aproximadas.
 - Last.fm y fotografías requieren pruebas con la cuenta real/red del usuario; los tests no validan disponibilidad de imagen para todos los artistas.
